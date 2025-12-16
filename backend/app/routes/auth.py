@@ -91,12 +91,13 @@ async def signup(
     token = create_jwt_token(db_user.id)
 
     # Set httpOnly cookie for Better Auth compatibility
+    # secure=True and samesite="none" required for cross-origin cookies (Vercel + Render)
     response.set_cookie(
         key="better-auth.session_token",
         value=token,
         httponly=True,  # Prevent JavaScript access
-        secure=False,  # Set to True in production with HTTPS
-        samesite="lax",  # CSRF protection
+        secure=True,  # Required for samesite=none and HTTPS
+        samesite="none",  # Allow cross-origin cookies
         max_age=7 * 24 * 60 * 60  # 7 days in seconds
     )
 
@@ -149,12 +150,13 @@ async def signin(
     token = create_jwt_token(user.id)
 
     # Set httpOnly cookie for Better Auth compatibility
+    # secure=True and samesite="none" required for cross-origin cookies (Vercel + Render)
     response.set_cookie(
         key="better-auth.session_token",
         value=token,
         httponly=True,  # Prevent JavaScript access
-        secure=False,  # Set to True in production with HTTPS
-        samesite="lax",  # CSRF protection
+        secure=True,  # Required for samesite=none and HTTPS
+        samesite="none",  # Allow cross-origin cookies
         max_age=7 * 24 * 60 * 60  # 7 days in seconds
     )
 
@@ -186,8 +188,8 @@ async def signout(response: Response):
     response.delete_cookie(
         key="better-auth.session_token",
         httponly=True,
-        secure=False,
-        samesite="lax"
+        secure=True,
+        samesite="none"
     )
 
     return {"message": "Successfully signed out"}
