@@ -1,36 +1,45 @@
 /**
- * Better Auth Configuration
- * JWT-based authentication with httpOnly cookies
+ * Authentication Utilities
+ * Frontend uses backend API for all auth operations
+ * See lib/api/auth.ts for authentication functions
  */
 
-import { betterAuth } from "better-auth"
-import { nextCookies } from "better-auth/next-js"
-import { Pool } from "pg"
+/**
+ * Get JWT token from localStorage
+ */
+export function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null
+  return localStorage.getItem('auth_token')
+}
 
-export const auth = betterAuth({
-  secret: process.env.BETTER_AUTH_SECRET!,
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+/**
+ * Set JWT token in localStorage
+ */
+export function setAuthToken(token: string): void {
+  if (typeof window === 'undefined') return
+  localStorage.setItem('auth_token', token)
+}
 
-  database: new Pool({
-    connectionString: process.env.DATABASE_URL!,
-  }),
+/**
+ * Remove JWT token from localStorage
+ */
+export function removeAuthToken(): void {
+  if (typeof window === 'undefined') return
+  localStorage.removeItem('auth_token')
+}
 
-  emailAndPassword: {
-    enabled: true,
-    requireEmailVerification: false,
-  },
+/**
+ * Check if user is authenticated
+ */
+export function isAuthenticated(): boolean {
+  return getAuthToken() !== null
+}
 
-  session: {
-    expiresIn: 60 * 60 * 24 * 7, // 7 days
-    updateAge: 60 * 60 * 24, // 1 day
-    cookieCache: {
-      enabled: true,
-      maxAge: 5 * 60, // 5 minutes
-      strategy: "jwt", // Store JWT in cookie (compatible with backend JWT decoding)
-    },
-  },
-
-  plugins: [nextCookies()],
-})
-
-export type Session = typeof auth.$Infer.Session
+export type Session = {
+  user: {
+    id: string
+    email: string
+    name: string | null
+  }
+  token: string
+}
