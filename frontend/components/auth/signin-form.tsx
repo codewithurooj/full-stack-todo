@@ -89,7 +89,7 @@ export function SignInForm() {
           Forgot password?
         </Link>
         <p className="text-sm text-gray-600">
-          Don't have an account?{" "}
+          Don&apos;t have an account?{" "}
           <Link
             href="/auth/signup"
             className="text-blue-600 hover:underline font-medium"

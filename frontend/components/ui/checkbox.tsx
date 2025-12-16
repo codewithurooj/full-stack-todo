@@ -21,7 +21,8 @@ export interface CheckboxProps {
 
 export const Checkbox = React.forwardRef<HTMLButtonElement, CheckboxProps>(
   ({ checked, onCheckedChange, label, disabled, name, id, className }, ref) => {
-    const checkboxId = id || React.useId()
+    const generatedId = React.useId()
+    const checkboxId = id || generatedId
 
     const handleClick = () => {
       if (!disabled && onCheckedChange) {
