@@ -11,7 +11,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
 
     # CORS settings
-    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",
+        "https://full-stack-todo-application-five.vercel.app"
+    ]
 
     # API Settings
     API_V1_PREFIX: str = "/api"
