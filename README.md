@@ -10,6 +10,15 @@ A modern todo application built using spec-driven development with Claude Code a
 **Due:** December 14, 2025
 **Points:** 150
 
+## 🌐 Live Demo
+
+**Try it out now!**
+
+- **Frontend Application:** https://full-stack-todo-application-five.vercel.app
+- **Backend API:** https://full-stack-todo-98cf.onrender.com
+- **API Documentation:** https://full-stack-todo-98cf.onrender.com/docs
+- **GitHub Repository:** https://github.com/codewithurooj/full-stack-todo
+
 ## ✨ Features
 
 - ✅ Task CRUD operations (Create, Read, Update, Delete, Mark Complete)
@@ -205,19 +214,42 @@ This project follows spec-driven development principles:
 
 ## 🚀 Deployment
 
-### Frontend (Vercel)
+### ✅ Production Deployment
+
+This application is **already deployed and live!**
+
+**Frontend (Vercel):**
+- **URL:** https://full-stack-todo-application-five.vercel.app
+- **Status:** ✅ Live
+- **Auto-deploy:** Enabled (deploys on push to `master`)
+
+**Backend (Render):**
+- **URL:** https://full-stack-todo-98cf.onrender.com
+- **Status:** ✅ Live
+- **Auto-deploy:** Enabled (deploys on push to `master`)
+
+**Database (Neon PostgreSQL):**
+- **Status:** ✅ Connected
+- **Type:** Serverless PostgreSQL
+
+### Deploy Your Own Instance
+
+**Frontend (Vercel):**
 
 1. Push code to GitHub
 2. Connect repository to Vercel
-3. Set environment variables
-4. Deploy
+3. Set Root Directory to `frontend`
+4. Set environment variables:
+   - `NEXT_PUBLIC_API_URL`
+   - `BETTER_AUTH_SECRET`
+5. Deploy
 
 ```bash
 cd frontend
 vercel deploy
 ```
 
-### Backend (Render/Railway)
+**Backend (Render/Railway):**
 
 1. Connect GitHub repository
 2. Set environment variables:
