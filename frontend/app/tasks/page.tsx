@@ -10,6 +10,10 @@ import * as React from "react"
 import { useRouter } from "next/navigation"
 import { useBackendSession } from "@/lib/use-backend-session"
 import { useTasks } from "@/hooks/use-tasks"
+import { useToast } from "@/components/ui/toast"
+import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
+import { Confetti } from "@/components/ui/confetti"
+import { KeyboardShortcutsModal } from "@/components/ui/keyboard-shortcuts-modal"
 import { Navbar } from "@/components/navbar"
 import { Button } from "@/components/ui/button"
 import { Alert } from "@/components/ui/alert"
@@ -26,12 +30,39 @@ export default function TasksPage() {
   const router = useRouter()
   const { data: session, isPending } = useBackendSession()
   const { tasks, isLoading, error, createTask, updateTask, deleteTask, toggleComplete } = useTasks()
+  const { showToast } = useToast()
 
   const [filter, setFilter] = React.useState<TaskFilter>("all")
   const [showCreateModal, setShowCreateModal] = React.useState(false)
   const [editingTask, setEditingTask] = React.useState<Task | null>(null)
   const [deletingTask, setDeletingTask] = React.useState<Task | null>(null)
   const [actionError, setActionError] = React.useState("")
+  const [showConfetti, setShowConfetti] = React.useState(false)
+  const [showShortcuts, setShowShortcuts] = React.useState(false)
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts([
+    {
+      key: "n",
+      description: "New task",
+      action: () => setShowCreateModal(true),
+    },
+    {
+      key: "?",
+      description: "Show shortcuts",
+      action: () => setShowShortcuts(true),
+    },
+    {
+      key: "c",
+      description: "Open chat",
+      action: () => router.push("/chat"),
+    },
+    {
+      key: "t",
+      description: "Go to tasks",
+      action: () => router.push("/tasks"),
+    },
+  ])
 
   // Filter tasks - MUST be before conditional returns to follow Rules of Hooks
   const filteredTasks = React.useMemo(() => {
@@ -102,8 +133,10 @@ export default function TasksPage() {
       setActionError("")
       await createTask(data)
       setShowCreateModal(false)
+      showToast("Task created successfully!", "success")
     } catch (err: any) {
       setActionError(err.message)
+      showToast(err.message || "Failed to create task", "error")
       throw err
     }
   }
@@ -113,8 +146,10 @@ export default function TasksPage() {
       setActionError("")
       await updateTask(taskId, updates)
       setEditingTask(null)
+      showToast("Task updated successfully!", "success")
     } catch (err: any) {
       setActionError(err.message)
+      showToast(err.message || "Failed to update task", "error")
       throw err
     }
   }
@@ -124,8 +159,10 @@ export default function TasksPage() {
       setActionError("")
       await deleteTask(taskId)
       setDeletingTask(null)
+      showToast("Task deleted successfully!", "success")
     } catch (err: any) {
       setActionError(err.message)
+      showToast(err.message || "Failed to delete task", "error")
       throw err
     }
   }
@@ -133,14 +170,29 @@ export default function TasksPage() {
   const handleToggleComplete = async (taskId: number) => {
     try {
       setActionError("")
+      const task = tasks?.find(t => t.id === taskId)
       await toggleComplete(taskId)
+      if (task) {
+        if (!task.completed) {
+          // Task was just completed - show celebration!
+          setShowConfetti(true)
+          showToast("Task completed! Great job! 🎉", "success")
+        } else {
+          // Task was uncompleted
+          showToast("Task marked as incomplete", "success")
+        }
+      }
     } catch (err: any) {
       setActionError(err.message)
+      showToast(err.message || "Failed to toggle completion", "error")
     }
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/20 relative overflow-hidden">
+      {/* Confetti celebration */}
+      <Confetti trigger={showConfetti} onComplete={() => setShowConfetti(false)} />
+
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 right-20 w-72 h-72 bg-blue-400/5 rounded-full blur-3xl animate-pulse" />
@@ -246,6 +298,12 @@ export default function TasksPage() {
           />
         </Modal>
       )}
+
+      {/* Keyboard Shortcuts Help */}
+      <KeyboardShortcutsModal
+        isOpen={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+      />
     </div>
   )
 }

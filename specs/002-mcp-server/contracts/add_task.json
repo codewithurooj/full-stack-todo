@@ -1,0 +1,36 @@
+{
+  "tool_name": "add_task",
+  "description": "Create a new task for the authenticated user",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "user_id": {
+        "type": "string",
+        "description": "User identifier (must match JWT token)"
+      },
+      "title": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 200,
+        "description": "Task title"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 1000,
+        "description": "Optional task description"
+      }
+    },
+    "required": ["user_id", "title"]
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "task_id": {"type": "string"},
+      "title": {"type": "string"},
+      "description": {"type": "string"},
+      "completed": {"type": "boolean"},
+      "created_at": {"type": "string", "format": "date-time"},
+      "updated_at": {"type": "string", "format": "date-time"}
+    }
+  }
+}

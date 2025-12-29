@@ -1,0 +1,22 @@
+{
+  "tool_name": "list_tasks",
+  "description": "Retrieve all tasks for authenticated user with optional filtering",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "user_id": {"type": "string"},
+      "filter": {"type": "string", "enum": ["all", "pending", "completed"], "default": "all"},
+      "sort_by": {"type": "string", "enum": ["created_at", "updated_at", "title"]},
+      "sort_order": {"type": "string", "enum": ["asc", "desc"]}
+    },
+    "required": ["user_id"]
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "tasks": {"type": "array", "items": {"$ref": "#/components/schemas/Task"}},
+      "count": {"type": "integer"},
+      "filter_applied": {"type": "string"}
+    }
+  }
+}

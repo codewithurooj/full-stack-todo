@@ -1,0 +1,23 @@
+{
+  "tool_name": "update_task",
+  "description": "Modify task title and/or description",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "user_id": {"type": "string"},
+      "task_id": {"type": "string", "format": "uuid"},
+      "title": {"type": "string", "minLength": 1, "maxLength": 200},
+      "description": {"type": "string", "maxLength": 1000}
+    },
+    "required": ["user_id", "task_id"]
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "task_id": {"type": "string"},
+      "title": {"type": "string"},
+      "description": {"type": "string"},
+      "updated_at": {"type": "string", "format": "date-time"}
+    }
+  }
+}

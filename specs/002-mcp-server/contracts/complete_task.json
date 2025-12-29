@@ -1,0 +1,20 @@
+{
+  "tool_name": "complete_task",
+  "description": "Toggle task completion status",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "user_id": {"type": "string"},
+      "task_id": {"type": "string", "format": "uuid"}
+    },
+    "required": ["user_id", "task_id"]
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "task_id": {"type": "string"},
+      "completed": {"type": "boolean"},
+      "updated_at": {"type": "string", "format": "date-time"}
+    }
+  }
+}

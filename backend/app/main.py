@@ -5,7 +5,10 @@ from sqlmodel import SQLModel
 
 from app.config import settings
 from app.database import engine
-from app.routes import tasks, auth
+from app.routes import tasks, auth, mcp, chat
+from app.mcp_server.server import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 # Create database tables
 SQLModel.metadata.create_all(engine)
@@ -19,6 +22,10 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+# Add rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
@@ -31,6 +38,8 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router)
 app.include_router(tasks.router)
+app.include_router(mcp.router)
+app.include_router(chat.router)
 
 
 @app.get("/")

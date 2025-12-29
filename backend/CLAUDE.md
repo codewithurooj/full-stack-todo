@@ -468,4 +468,237 @@ OPENAI_API_KEY=sk-your-openai-api-key
 
 ---
 
+## MCP Server Patterns (Feature 002)
+
+### Overview
+MCP (Model Context Protocol) server enables AI-powered task management through OpenAI function calling with 5 stateless tools.
+
+### Architecture
+```
+app/
+├── mcp_server/
+│   ├── server.py          # Tool registry & rate limiting
+│   ├── errors.py          # Custom exceptions (MCPError, ValidationError, etc.)
+│   ├── validation.py      # Shared validation utilities
+│   ├── auth.py            # JWT verification for MCP tools
+│   └── tools/
+│       ├── add_task.py
+│       ├── list_tasks.py
+│       ├── complete_task.py
+│       ├── delete_task.py
+│       └── update_task.py
+├── routes/
+│   ├── mcp.py            # MCP tool HTTP endpoints
+│   └── chat.py           # AI chat endpoint with OpenAI integration
+```
+
+### MCP Tool Pattern
+```python
+# app/mcp_server/tools/add_task.py
+from pydantic import BaseModel, Field
+from sqlmodel import Session
+from app.mcp_server.validation import validate_user_id, validate_title
+from app.mcp_server.auth import verify_user_authorization
+from app.mcp_server.errors import DatabaseError
+
+class AddTaskRequest(BaseModel):
+    """Request model following OpenAI function schema"""
+    user_id: str = Field(..., description="User identifier")
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
+
+class AddTaskResponse(BaseModel):
+    """Response model"""
+    task_id: str
+    title: str
+    completed: bool
+    created_at: datetime
+
+def add_task(
+    request: AddTaskRequest,
+    token_user_id: str,
+    session: Session
+) -> AddTaskResponse:
+    """Stateless tool handler"""
+    # 1. Validate inputs
+    validate_user_id(request.user_id)
+    validate_title(request.title)
+
+    # 2. Verify authorization
+    verify_user_authorization(request.user_id, token_user_id)
+
+    # 3. Execute database operation
+    try:
+        db_task = Task(user_id=request.user_id, title=request.title, ...)
+        session.add(db_task)
+        session.commit()
+        session.refresh(db_task)
+        return AddTaskResponse(task_id=str(db_task.id), ...)
+    except Exception as e:
+        session.rollback()
+        raise DatabaseError(message="Failed to create task", details={"error": str(e)})
+```
+
+### Tool Registration
+```python
+# app/mcp_server/server.py
+from app.mcp_server.tools.add_task import add_task
+
+register_tool(
+    name="add_task",
+    handler=add_task,
+    rate_limit="100/hour",
+    description="Create a new task for the authenticated user"
+)
+```
+
+### MCP HTTP Endpoint Pattern
+```python
+# app/routes/mcp.py
+from app.mcp_server.server import limiter, get_tool_handler
+
+@router.post("/add_task")
+@limiter.limit("100/hour")
+async def add_task_endpoint(
+    request: Request,
+    task_request: AddTaskRequest,
+    credentials: HTTPAuthCredentials = Depends(security),
+    session: Session = Depends(get_session)
+):
+    """MCP tool endpoint with rate limiting"""
+    try:
+        # Verify JWT
+        token = credentials.credentials
+        token_user_id = verify_jwt_token(token)
+
+        # Execute tool
+        handler = get_tool_handler("add_task")
+        result = handler(request=task_request, token_user_id=token_user_id, session=session)
+
+        logger.info(f"add_task: user={token_user_id}, task_id={result.task_id}")
+        return result
+
+    except MCPError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.to_dict())
+```
+
+### Chat Endpoint with OpenAI Integration
+```python
+# app/routes/chat.py
+from openai import OpenAI
+from app.mcp_server.server import get_all_tool_schemas
+
+@router.post("")
+async def chat_endpoint(user_id: str, chat_request: ChatRequest, ...):
+    """
+    Stateless 8-step chat flow:
+    1. Fetch conversation history from DB
+    2. Build messages array (system + history + user message)
+    3. Store user message
+    4. Call OpenAI with tool schemas
+    5. If tool calls: invoke tools and get results
+    6. If tool calls: call OpenAI again with results
+    7. Store assistant message
+    8. Return response
+    """
+    # Fetch history
+    messages = [{"role": "system", "content": "You are a task management assistant..."}]
+    # ... add history from DB
+    messages.append({"role": "user", "content": chat_request.message})
+
+    # Call OpenAI
+    response = openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=messages,
+        tools=get_all_tool_schemas(),
+        tool_choice="auto"
+    )
+
+    # Handle tool calls if present
+    if response.choices[0].message.tool_calls:
+        for tool_call in response.choices[0].message.tool_calls:
+            # Execute tool and add result to messages
+            handler = get_tool_handler(tool_call.function.name)
+            result = handler(...)
+            messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": result.model_dump_json()})
+
+        # Call OpenAI again with tool results
+        response = openai_client.chat.completions.create(model="gpt-4o", messages=messages)
+
+    # Store and return assistant message
+    assistant_message = response.choices[0].message.content
+    # ... store in DB
+    return ChatResponse(assistant_message=assistant_message, ...)
+```
+
+### Error Handling
+```python
+# app/mcp_server/errors.py
+class MCPError(Exception):
+    """Base MCP exception with JSON serialization"""
+    def __init__(self, message: str, code: str, status_code: int, details: dict):
+        self.message = message
+        self.code = code
+        self.status_code = status_code
+        self.details = details
+
+    def to_dict(self):
+        return {"error": {"message": self.message, "code": self.code, "details": self.details}}
+
+class ValidationError(MCPError):
+    """400 - Input validation failed"""
+    def __init__(self, message: str, details=None):
+        super().__init__(message, "VALIDATION_ERROR", 400, details or {})
+
+class AuthorizationError(MCPError):
+    """403 - User not authorized"""
+    def __init__(self, message="Unauthorized access", details=None):
+        super().__init__(message, "AUTHORIZATION_ERROR", 403, details or {})
+
+class NotFoundError(MCPError):
+    """404 - Resource not found"""
+    def __init__(self, message="Resource not found", details=None):
+        super().__init__(message, "NOT_FOUND", 404, details or {})
+```
+
+### Rate Limiting with slowapi
+```python
+# app/mcp_server/server.py
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
+
+# In main.py
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+```
+
+### MCP Best Practices
+- ✅ **Stateless design**: No server-side session state, all context from DB
+- ✅ **User isolation**: Verify user_id parameter matches JWT token on every tool call
+- ✅ **Validation first**: Validate all inputs before authorization checks
+- ✅ **Rate limiting**: Per-tool limits (100/hour creates, 1000/hour reads, 200/hour updates)
+- ✅ **Structured errors**: Use MCPError hierarchy with JSON serialization
+- ✅ **Logging**: Log all tool invocations with user_id and result summary
+- ✅ **Pydantic models**: Define Request/Response models matching OpenAI function schemas
+- ✅ **Database rollback**: Always rollback on errors to maintain consistency
+
+### Testing MCP Tools
+```bash
+# Test add_task tool directly
+curl -X POST http://localhost:8000/mcp/tools/add_task \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "user123", "title": "Buy groceries"}'
+
+# Test via chat endpoint
+curl -X POST http://localhost:8000/api/user123/chat \
+  -H "Authorization: Bearer $JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "I need to buy groceries tomorrow"}'
+```
+
+---
+
 **Build robust, type-safe APIs with FastAPI!** 🚀

@@ -1,0 +1,37 @@
+# Implementation Plan: ChatKit Conversational UI (004-chatkit-ui)
+
+## SUMMARY
+Build custom chat UI in Next.js frontend using React components + Tailwind.
+Connect to existing backend /api/{user_id}/chat endpoint.
+Optional: Add streaming endpoint for progressive text display.
+
+## TECH STACK
+Frontend: Next.js 15+, React 19, TypeScript, Tailwind CSS, Better Auth
+Backend: FastAPI (existing chat endpoint), Optional streaming endpoint
+Database: Existing (conversations & messages tables from Feature 003)
+
+## KEY DECISIONS
+1. NO external chat UI library (custom components)
+2. Streaming via Server-Sent Events (SSE) - optional
+3. JWT auth with Better Auth
+4. Custom React hooks for state management
+
+## COMPONENTS TO BUILD
+1. frontend/app/chat/page.tsx - Main chat page (Server Component)
+2. frontend/components/chat/ChatInterface.tsx - Chat container (Client)
+3. frontend/components/chat/ChatMessages.tsx - Message display (Client)
+4. frontend/components/chat/ChatInput.tsx - Input form (Client)
+5. frontend/lib/hooks/use-chat.ts - Chat state hook
+6. frontend/lib/hooks/use-stream-chat.ts - Streaming hook (optional)
+
+## BACKEND CHANGES
+Optional: Add /api/{user_id}/chat/stream endpoint for SSE streaming
+
+## NO NEW DEPENDENCIES
+All required packages already installed.
+
+## IMPLEMENTATION PHASES
+Phase 1: Non-streaming chat (basic functionality)
+Phase 2: Add streaming support (enhanced UX)
+
+Ready for /sp.tasks

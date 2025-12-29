@@ -1,0 +1,20 @@
+{
+  "tool_name": "delete_task",
+  "description": "Permanently remove a task",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "user_id": {"type": "string"},
+      "task_id": {"type": "string", "format": "uuid"}
+    },
+    "required": ["user_id", "task_id"]
+  },
+  "returns": {
+    "type": "object",
+    "properties": {
+      "task_id": {"type": "string"},
+      "deleted": {"type": "boolean", "const": true},
+      "deleted_at": {"type": "string", "format": "date-time"}
+    }
+  }
+}

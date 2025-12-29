@@ -32,3 +32,8 @@ mypy==1.13.0
 
 # Production Server
 gunicorn==23.0.0
+
+# MCP Server (Feature 002)
+mcp>=0.9.0
+openai>=1.0.0
+slowapi>=0.1.9

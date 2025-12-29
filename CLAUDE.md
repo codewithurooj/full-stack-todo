@@ -339,3 +339,10 @@ PATCH  /api/{user_id}/tasks/{id}/complete  # Toggle completion
 ---
 
 **Let's build this with spec-driven development!** 🚀
+
+## Active Technologies
+- Python 3.13+ + mcp (MCP SDK), openai, FastAPI 0.100+, SQLModel 0.0.8+, Pydantic 2.0+ (002-mcp-server)
+- Neon PostgreSQL - tables: tasks, users, conversations, messages (002-mcp-server)
+
+## Recent Changes
+- 002-mcp-server: Added Python 3.13+ + mcp (MCP SDK), openai, FastAPI 0.100+, SQLModel 0.0.8+, Pydantic 2.0+

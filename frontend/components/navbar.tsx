@@ -8,14 +8,15 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import { useBackendSession } from "@/lib/use-backend-session"
 import { signOutBackend } from "@/lib/api/auth"
 import { Button } from "@/components/ui/button"
-import { LogOut, User, Menu, X } from "lucide-react"
+import { LogOut, User, Menu, X, MessageSquare } from "lucide-react"
 
 export function Navbar() {
   const router = useRouter()
+  const pathname = usePathname()
   const { data: session, isPending } = useBackendSession()
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false)
 
@@ -49,9 +50,24 @@ export function Navbar() {
             <>
               <Link
                 href="/tasks"
-                className="relative text-sm font-semibold text-gray-700 hover:text-blue-600 transition-colors duration-200 after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-blue-600 after:transition-all after:duration-200 hover:after:w-full"
+                className={`relative text-sm font-semibold transition-colors duration-200 after:absolute after:bottom-0 after:left-0 after:h-0.5 after:bg-blue-600 after:transition-all after:duration-200 ${
+                  pathname === '/tasks'
+                    ? 'text-blue-600 after:w-full'
+                    : 'text-gray-700 hover:text-blue-600 after:w-0 hover:after:w-full'
+                }`}
               >
                 My Tasks
+              </Link>
+              <Link
+                href="/chat"
+                className={`relative flex items-center gap-2 text-sm font-semibold transition-colors duration-200 after:absolute after:bottom-0 after:left-0 after:h-0.5 after:bg-purple-600 after:transition-all after:duration-200 ${
+                  pathname === '/chat'
+                    ? 'text-purple-600 after:w-full'
+                    : 'text-gray-700 hover:text-purple-600 after:w-0 hover:after:w-full'
+                }`}
+              >
+                <MessageSquare className="h-4 w-4" />
+                AI Chat
               </Link>
               <div className="flex items-center gap-3">
                 <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gray-100 text-sm text-gray-700 border border-gray-200">
@@ -107,8 +123,9 @@ export function Navbar() {
       </div>
 
       {/* Mobile Menu Overlay */}
-      {mobileMenuOpen && (
-        <div className="md:hidden border-t border-gray-200 bg-white/95 backdrop-blur-lg shadow-lg">
+      <div className={`md:hidden border-t border-gray-200 bg-white/95 backdrop-blur-lg shadow-lg transition-all duration-300 overflow-hidden ${
+        mobileMenuOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+      }`}>
           <nav className="container mx-auto px-4 py-4 space-y-3">
             {isPending ? (
               <div className="h-12 w-full animate-pulse rounded-lg bg-gray-200" />
@@ -129,12 +146,36 @@ export function Navbar() {
                 <Link
                   href="/tasks"
                   onClick={closeMobileMenu}
-                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-blue-50 transition-colors duration-200 border border-transparent hover:border-blue-200"
+                  className={`flex items-center gap-3 p-3 rounded-lg transition-colors duration-200 border ${
+                    pathname === '/tasks'
+                      ? 'bg-blue-50 border-blue-200'
+                      : 'border-transparent hover:bg-blue-50 hover:border-blue-200'
+                  }`}
                 >
-                  <div className="h-10 w-10 rounded-lg bg-blue-100 flex items-center justify-center">
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+                    pathname === '/tasks' ? 'bg-blue-200' : 'bg-blue-100'
+                  }`}>
                     <span className="text-xl">📋</span>
                   </div>
                   <span className="font-semibold text-gray-900">My Tasks</span>
+                </Link>
+
+                {/* AI Chat Link */}
+                <Link
+                  href="/chat"
+                  onClick={closeMobileMenu}
+                  className={`flex items-center gap-3 p-3 rounded-lg transition-colors duration-200 border ${
+                    pathname === '/chat'
+                      ? 'bg-purple-50 border-purple-200'
+                      : 'border-transparent hover:bg-purple-50 hover:border-purple-200'
+                  }`}
+                >
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+                    pathname === '/chat' ? 'bg-purple-200' : 'bg-purple-100'
+                  }`}>
+                    <MessageSquare className="h-5 w-5 text-purple-600" />
+                  </div>
+                  <span className="font-semibold text-gray-900">AI Chat</span>
                 </Link>
 
                 {/* Sign Out Button */}
@@ -176,7 +217,6 @@ export function Navbar() {
             )}
           </nav>
         </div>
-      )}
     </header>
   )
 }

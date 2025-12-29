@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     BETTER_AUTH_SECRET: str
     OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o"
+    CHAT_SYSTEM_PROMPT: str = "You are a helpful AI assistant for task management. You can create, list, update, complete, and delete tasks for users. Be concise and friendly."
+    CHAT_HISTORY_LIMIT: int = 50
 
     # CORS settings
     CORS_ORIGINS: list[str] = [
