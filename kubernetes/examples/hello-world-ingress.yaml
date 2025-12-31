@@ -1,0 +1,51 @@
+# Hello World Ingress for Testing NGINX Ingress Controller
+# Feature: 006-minikube-setup / US2 - Enable Ingress Controller
+# Purpose: Simple ingress resource for HTTP routing
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello-world-ingress
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: hello.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: hello-world
+            port:
+              number: 80
+---
+# Note: To test this ingress:
+#
+# 1. Deploy the resources:
+#    kubectl apply -f kubernetes/examples/hello-world-deployment.yaml
+#    kubectl apply -f kubernetes/examples/hello-world-service.yaml
+#    kubectl apply -f kubernetes/examples/hello-world-ingress.yaml
+#
+# 2. Add hello.local to your hosts file:
+#    Get cluster IP:
+#      minikube ip -p todo-dev
+#
+#    Add to hosts file:
+#      Windows: C:\Windows\System32\drivers\etc\hosts
+#      macOS/Linux: /etc/hosts
+#
+#    Add line:
+#      <MINIKUBE_IP>  hello.local
+#
+# 3. Test with curl:
+#    curl http://hello.local
+#
+# Expected response:
+#    Hello, world!
+#    Version: 1.0.0
+#    Hostname: hello-world-<pod-id>

@@ -1,0 +1,513 @@
+#!/bin/bash
+
+##############################################################################
+# Minikube Cluster Verification Script (Contract)
+##############################################################################
+# Description: Comprehensive health checks for cluster and addons
+# Version: 1.0
+# Feature: 006-minikube-setup
+# Created: 2025-12-30
+##############################################################################
+
+set -u  # Exit on undefined variable
+
+##############################################################################
+# Configuration Variables
+##############################################################################
+
+# Cluster profile name
+PROFILE_NAME="${MINIKUBE_PROFILE:-todo-dev}"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# Test result counters
+TESTS_PASSED=0
+TESTS_FAILED=0
+TESTS_WARNING=0
+
+##############################################################################
+# Utility Functions
+##############################################################################
+
+# Print test header
+print_test_header() {
+    local test_name="$1"
+    echo ""
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}TEST: ${test_name}${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# Print test result
+print_result() {
+    local status="$1"
+    local message="$2"
+
+    case "$status" in
+        PASS)
+            echo -e "${GREEN}✓ PASS:${NC} ${message}"
+            ((TESTS_PASSED++))
+            ;;
+        FAIL)
+            echo -e "${RED}✗ FAIL:${NC} ${message}"
+            ((TESTS_FAILED++))
+            ;;
+        WARN)
+            echo -e "${YELLOW}⚠ WARN:${NC} ${message}"
+            ((TESTS_WARNING++))
+            ;;
+        INFO)
+            echo -e "${BLUE}ℹ INFO:${NC} ${message}"
+            ;;
+    esac
+}
+
+##############################################################################
+# Cluster Health Checks
+##############################################################################
+
+# Test 1: Minikube cluster status
+test_cluster_status() {
+    print_test_header "Cluster Status"
+
+    # Check if profile exists
+    if ! minikube profile list 2>/dev/null | grep -q "^| $PROFILE_NAME "; then
+        print_result "FAIL" "Cluster profile '${PROFILE_NAME}' does not exist"
+        return 1
+    fi
+
+    print_result "PASS" "Cluster profile '${PROFILE_NAME}' exists"
+
+    # Get detailed status
+    echo ""
+    echo -e "${BLUE}Cluster Status Details:${NC}"
+    minikube status -p "$PROFILE_NAME"
+
+    # Check if running
+    CLUSTER_STATUS=$(minikube status -p "$PROFILE_NAME" --format='{{.Host}}' 2>/dev/null || echo "Unknown")
+
+    if [ "$CLUSTER_STATUS" = "Running" ]; then
+        print_result "PASS" "Cluster is running"
+    else
+        print_result "FAIL" "Cluster is not running (status: ${CLUSTER_STATUS})"
+        return 1
+    fi
+
+    return 0
+}
+
+# Test 2: Node readiness
+test_node_readiness() {
+    print_test_header "Node Readiness"
+
+    # Check if kubectl can connect
+    if ! kubectl get nodes &>/dev/null; then
+        print_result "FAIL" "Cannot connect to cluster with kubectl"
+        return 1
+    fi
+
+    print_result "PASS" "kubectl can connect to cluster"
+
+    # Check node status
+    NODE_STATUS=$(kubectl get nodes --no-headers 2>/dev/null | awk '{print $2}')
+
+    if [ "$NODE_STATUS" = "Ready" ]; then
+        print_result "PASS" "Node is in Ready state"
+    else
+        print_result "FAIL" "Node is not Ready (status: ${NODE_STATUS})"
+        return 1
+    fi
+
+    # Display node details
+    echo ""
+    echo -e "${BLUE}Node Details:${NC}"
+    kubectl get nodes -o wide
+
+    return 0
+}
+
+# Test 3: Resource allocation verification
+test_resource_allocation() {
+    print_test_header "Resource Allocation"
+
+    # Get allocatable resources
+    CPU_ALLOCATABLE=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.cpu}')
+    MEMORY_ALLOCATABLE=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.memory}')
+
+    echo -e "${BLUE}Allocated Resources:${NC}"
+    echo -e "  CPU: ${CPU_ALLOCATABLE}"
+    echo -e "  Memory: ${MEMORY_ALLOCATABLE}"
+
+    # Validate CPU (expecting 4 cores for standard setup)
+    if [ "${CPU_ALLOCATABLE%%m*}" -ge 3 ] 2>/dev/null || [ "$CPU_ALLOCATABLE" -ge 3 ] 2>/dev/null; then
+        print_result "PASS" "CPU allocation is adequate (${CPU_ALLOCATABLE})"
+    else
+        print_result "WARN" "CPU allocation may be insufficient (${CPU_ALLOCATABLE})"
+    fi
+
+    # Validate Memory (expecting at least 7GB for 8GB allocation)
+    MEMORY_VALUE=$(echo "$MEMORY_ALLOCATABLE" | sed 's/[^0-9]*//g')
+    if [ "$MEMORY_VALUE" -ge 7000000 ] 2>/dev/null; then
+        print_result "PASS" "Memory allocation is adequate (${MEMORY_ALLOCATABLE})"
+    else
+        print_result "WARN" "Memory allocation may be insufficient (${MEMORY_ALLOCATABLE})"
+    fi
+
+    return 0
+}
+
+# Test 4: System pods health
+test_system_pods() {
+    print_test_header "System Pods Health"
+
+    # Get system pod statuses
+    echo -e "${BLUE}System Pods (kube-system namespace):${NC}"
+    kubectl get pods -n kube-system
+
+    # Count non-running pods
+    NON_RUNNING_PODS=$(kubectl get pods -n kube-system --no-headers 2>/dev/null | grep -v -E "Running|Completed" | wc -l)
+
+    if [ "$NON_RUNNING_PODS" -eq 0 ]; then
+        print_result "PASS" "All system pods are Running or Completed"
+    else
+        print_result "FAIL" "${NON_RUNNING_PODS} system pod(s) are not in Running/Completed state"
+        return 1
+    fi
+
+    return 0
+}
+
+# Test 5: API server connectivity
+test_api_server() {
+    print_test_header "API Server Connectivity"
+
+    # Test cluster-info
+    if kubectl cluster-info &>/dev/null; then
+        print_result "PASS" "API server is reachable"
+
+        echo ""
+        echo -e "${BLUE}Cluster Info:${NC}"
+        kubectl cluster-info
+    else
+        print_result "FAIL" "Cannot reach API server"
+        return 1
+    fi
+
+    # Test API response time
+    START_TIME=$(date +%s%N)
+    kubectl get nodes &>/dev/null
+    END_TIME=$(date +%s%N)
+    RESPONSE_TIME=$(( (END_TIME - START_TIME) / 1000000 ))  # Convert to milliseconds
+
+    if [ "$RESPONSE_TIME" -lt 1000 ]; then
+        print_result "PASS" "API response time is good (${RESPONSE_TIME}ms)"
+    else
+        print_result "WARN" "API response time is slow (${RESPONSE_TIME}ms)"
+    fi
+
+    return 0
+}
+
+# Test 6: DNS functionality
+test_dns() {
+    print_test_header "DNS Functionality"
+
+    echo -e "${BLUE}Testing DNS resolution...${NC}"
+
+    # Create a temporary pod to test DNS
+    DNS_TEST=$(kubectl run dns-test --image=busybox:1.28 --rm -it --restart=Never \
+        --command -- nslookup kubernetes.default 2>&1 || true)
+
+    if echo "$DNS_TEST" | grep -q "Server:"; then
+        print_result "PASS" "DNS resolution is working"
+    else
+        print_result "FAIL" "DNS resolution is not working"
+        echo "$DNS_TEST"
+        return 1
+    fi
+
+    return 0
+}
+
+##############################################################################
+# Addon Health Checks
+##############################################################################
+
+# Test 7: Ingress controller
+test_ingress_addon() {
+    print_test_header "Ingress Controller Addon"
+
+    # Check if addon is enabled
+    if minikube addons list -p "$PROFILE_NAME" | grep "ingress" | grep -q "enabled"; then
+        print_result "PASS" "Ingress addon is enabled"
+    else
+        print_result "WARN" "Ingress addon is not enabled"
+        echo -e "${YELLOW}Enable with: minikube addons enable ingress -p ${PROFILE_NAME}${NC}"
+        return 0
+    fi
+
+    # Check ingress-nginx pods
+    echo ""
+    echo -e "${BLUE}Ingress-nginx Pods:${NC}"
+    kubectl get pods -n ingress-nginx
+
+    INGRESS_READY=$(kubectl get pods -n ingress-nginx --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+
+    if [ "$INGRESS_READY" -gt 0 ]; then
+        print_result "PASS" "Ingress controller pods are running"
+    else
+        print_result "FAIL" "Ingress controller pods are not running"
+        return 1
+    fi
+
+    # Check if ingress controller is ready
+    if kubectl get pods -n ingress-nginx -l app.kubernetes.io/component=controller --no-headers 2>/dev/null | grep -q "Running"; then
+        print_result "PASS" "Ingress controller is ready"
+    else
+        print_result "WARN" "Ingress controller may not be fully ready"
+    fi
+
+    return 0
+}
+
+# Test 8: Metrics server
+test_metrics_server_addon() {
+    print_test_header "Metrics Server Addon"
+
+    # Check if addon is enabled
+    if minikube addons list -p "$PROFILE_NAME" | grep "metrics-server" | grep -q "enabled"; then
+        print_result "PASS" "Metrics-server addon is enabled"
+    else
+        print_result "WARN" "Metrics-server addon is not enabled"
+        echo -e "${YELLOW}Enable with: minikube addons enable metrics-server -p ${PROFILE_NAME}${NC}"
+        return 0
+    fi
+
+    # Check metrics-server pods
+    echo ""
+    echo -e "${BLUE}Metrics-server Pods:${NC}"
+    kubectl get pods -n kube-system -l k8s-app=metrics-server
+
+    METRICS_READY=$(kubectl get pods -n kube-system -l k8s-app=metrics-server --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+
+    if [ "$METRICS_READY" -gt 0 ]; then
+        print_result "PASS" "Metrics-server pod is running"
+    else
+        print_result "FAIL" "Metrics-server pod is not running"
+        return 1
+    fi
+
+    # Check if metrics are available
+    echo ""
+    echo -e "${BLUE}Testing metrics availability...${NC}"
+
+    if kubectl top nodes &>/dev/null; then
+        print_result "PASS" "Node metrics are available"
+
+        echo ""
+        echo -e "${BLUE}Node Metrics:${NC}"
+        kubectl top nodes
+    else
+        print_result "WARN" "Node metrics not yet available (may need 1-2 minutes after startup)"
+    fi
+
+    if kubectl top pods -A --no-headers &>/dev/null && [ $(kubectl top pods -A --no-headers 2>/dev/null | wc -l) -gt 0 ]; then
+        print_result "PASS" "Pod metrics are available"
+    else
+        print_result "WARN" "Pod metrics not yet available (may need 1-2 minutes after startup)"
+    fi
+
+    return 0
+}
+
+# Test 9: Dashboard
+test_dashboard_addon() {
+    print_test_header "Kubernetes Dashboard Addon"
+
+    # Check if addon is enabled
+    if minikube addons list -p "$PROFILE_NAME" | grep "dashboard" | grep -q "enabled"; then
+        print_result "PASS" "Dashboard addon is enabled"
+    else
+        print_result "WARN" "Dashboard addon is not enabled"
+        echo -e "${YELLOW}Enable with: minikube addons enable dashboard -p ${PROFILE_NAME}${NC}"
+        return 0
+    fi
+
+    # Check dashboard pods
+    echo ""
+    echo -e "${BLUE}Dashboard Pods:${NC}"
+    kubectl get pods -n kubernetes-dashboard
+
+    DASHBOARD_READY=$(kubectl get pods -n kubernetes-dashboard --no-headers 2>/dev/null | grep -c "Running" || echo "0")
+
+    if [ "$DASHBOARD_READY" -gt 0 ]; then
+        print_result "PASS" "Dashboard pod(s) are running"
+    else
+        print_result "FAIL" "Dashboard pod(s) are not running"
+        return 1
+    fi
+
+    # Display access instructions
+    echo ""
+    echo -e "${BLUE}Dashboard Access:${NC}"
+    echo -e "  minikube dashboard -p ${PROFILE_NAME}"
+    echo -e "  minikube dashboard -p ${PROFILE_NAME} --url"
+
+    return 0
+}
+
+##############################################################################
+# Network Checks
+##############################################################################
+
+# Test 10: Network connectivity
+test_network() {
+    print_test_header "Network Connectivity"
+
+    # Get cluster IP
+    CLUSTER_IP=$(minikube ip -p "$PROFILE_NAME" 2>/dev/null || echo "")
+
+    if [ -n "$CLUSTER_IP" ]; then
+        print_result "PASS" "Cluster IP address: ${CLUSTER_IP}"
+
+        # Test ping (may not work on all drivers)
+        if ping -c 1 -W 2 "$CLUSTER_IP" &>/dev/null; then
+            print_result "PASS" "Cluster IP is reachable via ping"
+        else
+            print_result "INFO" "Cluster IP not reachable via ping (normal for Docker driver)"
+        fi
+    else
+        print_result "WARN" "Could not retrieve cluster IP"
+    fi
+
+    # Check service CIDR
+    SERVICE_CIDR=$(kubectl cluster-info dump 2>/dev/null | grep -oP 'service-cluster-ip-range=\K[0-9./]+' | head -1 || echo "Unknown")
+    print_result "INFO" "Service CIDR: ${SERVICE_CIDR}"
+
+    return 0
+}
+
+# Test 11: Ingress routing (if ingress enabled)
+test_ingress_routing() {
+    print_test_header "Ingress Routing Configuration"
+
+    # Check if ingress addon is enabled
+    if ! minikube addons list -p "$PROFILE_NAME" | grep "ingress" | grep -q "enabled"; then
+        print_result "INFO" "Ingress addon not enabled, skipping routing test"
+        return 0
+    fi
+
+    # Get cluster IP
+    CLUSTER_IP=$(minikube ip -p "$PROFILE_NAME" 2>/dev/null || echo "")
+
+    if [ -z "$CLUSTER_IP" ]; then
+        print_result "WARN" "Cannot determine cluster IP for ingress configuration"
+        return 0
+    fi
+
+    # Check hosts file configuration
+    echo ""
+    echo -e "${BLUE}Recommended /etc/hosts entry:${NC}"
+    echo -e "  ${CLUSTER_IP} todo.local api.todo.local"
+
+    # Check if any ingress resources exist
+    INGRESS_COUNT=$(kubectl get ingress --all-namespaces --no-headers 2>/dev/null | wc -l)
+
+    if [ "$INGRESS_COUNT" -gt 0 ]; then
+        print_result "PASS" "Found ${INGRESS_COUNT} ingress resource(s)"
+
+        echo ""
+        echo -e "${BLUE}Ingress Resources:${NC}"
+        kubectl get ingress --all-namespaces
+    else
+        print_result "INFO" "No ingress resources found (create one to test routing)"
+    fi
+
+    return 0
+}
+
+##############################################################################
+# Summary and Report
+##############################################################################
+
+# Display final summary
+display_summary() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}VERIFICATION SUMMARY${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    TOTAL_TESTS=$((TESTS_PASSED + TESTS_FAILED + TESTS_WARNING))
+
+    echo -e "${GREEN}Passed:  ${TESTS_PASSED}/${TOTAL_TESTS}${NC}"
+    echo -e "${RED}Failed:  ${TESTS_FAILED}/${TOTAL_TESTS}${NC}"
+    echo -e "${YELLOW}Warnings: ${TESTS_WARNING}/${TOTAL_TESTS}${NC}"
+
+    echo ""
+
+    if [ "$TESTS_FAILED" -eq 0 ]; then
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${GREEN}✓ CLUSTER VERIFICATION PASSED${NC}"
+        echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        return 0
+    else
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${RED}✗ CLUSTER VERIFICATION FAILED${NC}"
+        echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${YELLOW}Review failed tests above and take corrective action${NC}"
+        return 1
+    fi
+}
+
+##############################################################################
+# Main Execution
+##############################################################################
+
+main() {
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Minikube Cluster Verification${NC}"
+    echo -e "${GREEN}Profile: ${PROFILE_NAME}${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    # Run all tests
+    test_cluster_status
+    test_node_readiness
+    test_resource_allocation
+    test_system_pods
+    test_api_server
+    test_dns
+    test_ingress_addon
+    test_metrics_server_addon
+    test_dashboard_addon
+    test_network
+    test_ingress_routing
+
+    # Display summary
+    display_summary
+}
+
+# Expected output:
+# - Comprehensive health report for cluster and all addons
+# - Pass/Fail/Warning status for each test
+# - Detailed information about resource allocation
+# - Configuration recommendations
+# - Final summary with test counts
+
+# Error handling:
+# - Individual test failures don't stop verification
+# - Tests continue even if some fail
+# - Final exit code reflects overall health
+# - Clear indication of what needs fixing
+
+# Run main function
+main "$@"
+EXIT_CODE=$?
+
+exit $EXIT_CODE

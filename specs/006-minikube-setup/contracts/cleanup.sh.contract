@@ -1,0 +1,456 @@
+#!/bin/bash
+
+##############################################################################
+# Minikube Cluster Cleanup Script (Contract)
+##############################################################################
+# Description: Safely stop, pause, or delete Minikube cluster with options
+# Version: 1.0
+# Feature: 006-minikube-setup
+# Created: 2025-12-30
+##############################################################################
+
+set -u  # Exit on undefined variable
+
+##############################################################################
+# Configuration Variables
+##############################################################################
+
+# Cluster profile name
+PROFILE_NAME="${MINIKUBE_PROFILE:-todo-dev}"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+##############################################################################
+# Validation Functions
+##############################################################################
+
+# Check if cluster exists
+check_cluster_exists() {
+    if ! minikube profile list 2>/dev/null | grep -q "^| $PROFILE_NAME "; then
+        echo -e "${YELLOW}⚠ Cluster profile '${PROFILE_NAME}' does not exist.${NC}"
+        echo -e "${BLUE}Nothing to clean up.${NC}"
+        exit 0
+    fi
+}
+
+# Display cluster status
+display_cluster_status() {
+    echo -e "${BLUE}Current cluster status:${NC}"
+    echo ""
+    minikube status -p "$PROFILE_NAME" || true
+    echo ""
+}
+
+##############################################################################
+# Cleanup Operations
+##############################################################################
+
+# Stop cluster (preserves cluster state, can be restarted)
+stop_cluster() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Stopping Cluster: ${PROFILE_NAME}${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${YELLOW}This will stop the cluster but preserve all data and configuration.${NC}"
+    echo -e "${YELLOW}You can restart it later with: minikube start -p ${PROFILE_NAME}${NC}"
+    echo ""
+
+    read -p "Stop cluster '${PROFILE_NAME}'? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Cancelled.${NC}"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${BLUE}Stopping cluster...${NC}"
+
+    if minikube stop -p "$PROFILE_NAME"; then
+        echo ""
+        echo -e "${GREEN}✓ Cluster stopped successfully${NC}"
+        echo ""
+        echo -e "${BLUE}Cluster status:${NC}"
+        minikube status -p "$PROFILE_NAME" || true
+        echo ""
+        echo -e "${GREEN}To restart: minikube start -p ${PROFILE_NAME}${NC}"
+    else
+        echo ""
+        echo -e "${RED}✗ Failed to stop cluster${NC}"
+        return 1
+    fi
+
+    return 0
+}
+
+# Pause cluster (freezes cluster state, faster resume than stop)
+pause_cluster() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Pausing Cluster: ${PROFILE_NAME}${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${YELLOW}This will pause the cluster (freezes all processes).${NC}"
+    echo -e "${YELLOW}Resume with: minikube unpause -p ${PROFILE_NAME}${NC}"
+    echo ""
+
+    read -p "Pause cluster '${PROFILE_NAME}'? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Cancelled.${NC}"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${BLUE}Pausing cluster...${NC}"
+
+    if minikube pause -p "$PROFILE_NAME"; then
+        echo ""
+        echo -e "${GREEN}✓ Cluster paused successfully${NC}"
+        echo ""
+        echo -e "${GREEN}To resume: minikube unpause -p ${PROFILE_NAME}${NC}"
+    else
+        echo ""
+        echo -e "${RED}✗ Failed to pause cluster${NC}"
+        return 1
+    fi
+
+    return 0
+}
+
+# Delete cluster (removes all cluster data and configuration)
+delete_cluster() {
+    echo ""
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${RED}DANGER: Delete Cluster: ${PROFILE_NAME}${NC}"
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${RED}⚠ WARNING: This will permanently delete the cluster and ALL data!${NC}"
+    echo -e "${RED}⚠ This action cannot be undone.${NC}"
+    echo ""
+    echo -e "${YELLOW}What will be deleted:${NC}"
+    echo -e "  • Cluster VM/container"
+    echo -e "  • All Kubernetes resources (pods, services, deployments, etc.)"
+    echo -e "  • Persistent volumes and data"
+    echo -e "  • Cluster configuration"
+    echo ""
+
+    read -p "Type cluster name '${PROFILE_NAME}' to confirm deletion: " CONFIRM_NAME
+
+    if [ "$CONFIRM_NAME" != "$PROFILE_NAME" ]; then
+        echo -e "${BLUE}Name does not match. Deletion cancelled.${NC}"
+        return 1
+    fi
+
+    echo ""
+    read -p "Are you absolutely sure? (yes/NO): " CONFIRM_DELETE
+
+    if [ "$CONFIRM_DELETE" != "yes" ]; then
+        echo -e "${BLUE}Deletion cancelled.${NC}"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${RED}Deleting cluster...${NC}"
+
+    if minikube delete -p "$PROFILE_NAME"; then
+        echo ""
+        echo -e "${GREEN}✓ Cluster deleted successfully${NC}"
+        echo ""
+        echo -e "${BLUE}To create a new cluster with same name:${NC}"
+        echo -e "  minikube start -p ${PROFILE_NAME} --driver=docker --cpus=4 --memory=8192"
+    else
+        echo ""
+        echo -e "${RED}✗ Failed to delete cluster${NC}"
+        return 1
+    fi
+
+    return 0
+}
+
+# Delete all Minikube profiles
+delete_all_clusters() {
+    echo ""
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${RED}DANGER: Delete ALL Minikube Clusters${NC}"
+    echo -e "${RED}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${RED}⚠ WARNING: This will delete ALL Minikube clusters on this machine!${NC}"
+    echo ""
+
+    # List all profiles
+    echo -e "${BLUE}Existing Minikube profiles:${NC}"
+    minikube profile list || echo "No profiles found"
+    echo ""
+
+    read -p "Type 'DELETE ALL' to confirm deletion of all clusters: " CONFIRM_ALL
+
+    if [ "$CONFIRM_ALL" != "DELETE ALL" ]; then
+        echo -e "${BLUE}Deletion cancelled.${NC}"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${RED}Deleting all Minikube clusters...${NC}"
+
+    if minikube delete --all; then
+        echo ""
+        echo -e "${GREEN}✓ All clusters deleted successfully${NC}"
+    else
+        echo ""
+        echo -e "${RED}✗ Failed to delete all clusters${NC}"
+        return 1
+    fi
+
+    return 0
+}
+
+# Clean Docker resources (images, containers, volumes)
+clean_docker_resources() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Clean Docker Resources${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${YELLOW}This will remove unused Docker resources to free up disk space.${NC}"
+    echo ""
+
+    # Check if Docker is available
+    if ! command -v docker &> /dev/null; then
+        echo -e "${YELLOW}⚠ Docker is not installed or not in PATH.${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}Current Docker disk usage:${NC}"
+    docker system df || true
+    echo ""
+
+    read -p "Clean unused Docker resources? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Cancelled.${NC}"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${BLUE}Removing unused Docker resources...${NC}"
+
+    # Remove stopped containers
+    echo -e "${YELLOW}Removing stopped containers...${NC}"
+    docker container prune -f || true
+
+    # Remove unused images
+    echo -e "${YELLOW}Removing unused images...${NC}"
+    docker image prune -a -f || true
+
+    # Remove unused volumes
+    echo -e "${YELLOW}Removing unused volumes...${NC}"
+    docker volume prune -f || true
+
+    # Remove unused networks
+    echo -e "${YELLOW}Removing unused networks...${NC}"
+    docker network prune -f || true
+
+    echo ""
+    echo -e "${GREEN}✓ Docker cleanup complete${NC}"
+    echo ""
+    echo -e "${BLUE}New Docker disk usage:${NC}"
+    docker system df || true
+
+    return 0
+}
+
+# Reset Minikube cache and configuration
+reset_minikube_config() {
+    echo ""
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${YELLOW}Reset Minikube Configuration${NC}"
+    echo -e "${YELLOW}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${YELLOW}This will delete Minikube cache and global configuration.${NC}"
+    echo -e "${RED}⚠ This does not delete clusters, but resets Minikube to defaults.${NC}"
+    echo ""
+
+    read -p "Reset Minikube configuration? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Cancelled.${NC}"
+        return 1
+    fi
+
+    echo ""
+    echo -e "${BLUE}Current Minikube configuration:${NC}"
+    minikube config view || true
+    echo ""
+
+    # Delete cached images and config
+    MINIKUBE_HOME="${MINIKUBE_HOME:-$HOME/.minikube}"
+
+    echo -e "${YELLOW}Deleting Minikube cache...${NC}"
+    rm -rf "${MINIKUBE_HOME}/cache" 2>/dev/null || true
+
+    echo -e "${YELLOW}Resetting Minikube config...${NC}"
+    rm -f "${MINIKUBE_HOME}/config/config.json" 2>/dev/null || true
+
+    echo ""
+    echo -e "${GREEN}✓ Minikube configuration reset${NC}"
+    echo -e "${BLUE}Default configuration will be used on next cluster start.${NC}"
+
+    return 0
+}
+
+##############################################################################
+# Interactive Menu
+##############################################################################
+
+show_menu() {
+    echo ""
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Minikube Cleanup Options${NC}"
+    echo -e "${GREEN}Profile: ${PROFILE_NAME}${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "${BLUE}1)${NC} Stop cluster (preserves data, can restart later)"
+    echo -e "${BLUE}2)${NC} Pause cluster (freeze state, quick resume)"
+    echo -e "${BLUE}3)${NC} Delete cluster (permanent deletion)"
+    echo -e "${BLUE}4)${NC} Delete ALL Minikube clusters"
+    echo -e "${BLUE}5)${NC} Clean Docker resources (free disk space)"
+    echo -e "${BLUE}6)${NC} Reset Minikube configuration"
+    echo -e "${BLUE}7)${NC} Display cluster status"
+    echo -e "${BLUE}8)${NC} Exit"
+    echo ""
+}
+
+# Interactive menu loop
+interactive_menu() {
+    while true; do
+        show_menu
+        read -p "Select an option (1-8): " choice
+
+        case "$choice" in
+            1)
+                stop_cluster
+                ;;
+            2)
+                pause_cluster
+                ;;
+            3)
+                delete_cluster
+                ;;
+            4)
+                delete_all_clusters
+                ;;
+            5)
+                clean_docker_resources
+                ;;
+            6)
+                reset_minikube_config
+                ;;
+            7)
+                display_cluster_status
+                ;;
+            8)
+                echo ""
+                echo -e "${GREEN}Goodbye!${NC}"
+                exit 0
+                ;;
+            *)
+                echo -e "${RED}Invalid option. Please select 1-8.${NC}"
+                ;;
+        esac
+
+        echo ""
+        read -p "Press Enter to continue..."
+    done
+}
+
+##############################################################################
+# Main Execution
+##############################################################################
+
+main() {
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Minikube Cluster Cleanup${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+
+    # Parse command-line arguments
+    if [ $# -eq 0 ]; then
+        # No arguments: show interactive menu
+        check_cluster_exists
+        display_cluster_status
+        interactive_menu
+    else
+        # Arguments provided: execute specific operation
+        check_cluster_exists
+
+        case "$1" in
+            stop)
+                stop_cluster
+                ;;
+            pause)
+                pause_cluster
+                ;;
+            delete)
+                delete_cluster
+                ;;
+            delete-all)
+                delete_all_clusters
+                ;;
+            clean-docker)
+                clean_docker_resources
+                ;;
+            reset-config)
+                reset_minikube_config
+                ;;
+            status)
+                display_cluster_status
+                ;;
+            *)
+                echo -e "${RED}Unknown operation: $1${NC}"
+                echo ""
+                echo -e "${BLUE}Usage:${NC}"
+                echo -e "  $0                    # Interactive menu"
+                echo -e "  $0 stop               # Stop cluster"
+                echo -e "  $0 pause              # Pause cluster"
+                echo -e "  $0 delete             # Delete cluster"
+                echo -e "  $0 delete-all         # Delete all clusters"
+                echo -e "  $0 clean-docker       # Clean Docker resources"
+                echo -e "  $0 reset-config       # Reset Minikube config"
+                echo -e "  $0 status             # Show cluster status"
+                exit 1
+                ;;
+        esac
+    fi
+}
+
+# Expected output:
+# - Interactive menu for cleanup operations
+# - Confirmation prompts for destructive operations
+# - Clear status messages for each operation
+# - Helpful next-step instructions
+
+# Error handling:
+# - Validates cluster exists before operations
+# - Confirmation prompts prevent accidental deletion
+# - Graceful handling when cluster doesn't exist
+# - Clear error messages with suggested actions
+
+# Usage examples:
+# ./cleanup.sh                 # Interactive menu
+# ./cleanup.sh stop            # Stop cluster non-interactively
+# ./cleanup.sh delete          # Delete cluster (with confirmation)
+# ./cleanup.sh clean-docker    # Clean Docker resources
+
+# Safety features:
+# - Double confirmation for destructive operations
+# - Typed confirmation required for cluster deletion
+# - Status display before operations
+# - Preserves data by default (stop vs delete)
+
+# Run main function
+main "$@"

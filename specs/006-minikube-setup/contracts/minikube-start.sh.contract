@@ -1,0 +1,432 @@
+#!/bin/bash
+
+##############################################################################
+# Minikube Cluster Initialization Script (Contract)
+##############################################################################
+# Description: Complete cluster startup with resource allocation and addons
+# Version: 1.0
+# Feature: 006-minikube-setup
+# Created: 2025-12-30
+##############################################################################
+
+set -e  # Exit on any error
+set -u  # Exit on undefined variable
+
+##############################################################################
+# Configuration Variables
+##############################################################################
+
+# Cluster profile name
+PROFILE_NAME="${MINIKUBE_PROFILE:-todo-dev}"
+
+# Driver selection (docker, hyperv, virtualbox, kvm2)
+DRIVER="${MINIKUBE_DRIVER:-docker}"
+
+# Resource allocation
+CPU_COUNT="${MINIKUBE_CPU:-4}"
+MEMORY_MB="${MINIKUBE_MEMORY:-8192}"
+DISK_SIZE="${MINIKUBE_DISK:-40g}"
+
+# Kubernetes version (use 'stable' for latest stable release)
+K8S_VERSION="${K8S_VERSION:-stable}"
+
+# Container runtime (docker, containerd, cri-o)
+CONTAINER_RUNTIME="${CONTAINER_RUNTIME:-docker}"
+
+# Addons to enable after cluster start
+ADDONS=(
+    "ingress"
+    "metrics-server"
+    "dashboard"
+)
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+##############################################################################
+# Validation Functions
+##############################################################################
+
+# Check if Minikube is installed
+check_minikube_installed() {
+    echo -e "${BLUE}[1/5] Checking Minikube installation...${NC}"
+    if ! command -v minikube &> /dev/null; then
+        echo -e "${RED}ERROR: Minikube is not installed.${NC}"
+        echo "Please install Minikube: https://minikube.sigs.k8s.io/docs/start/"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Minikube found: $(minikube version --short)${NC}"
+}
+
+# Check if kubectl is installed
+check_kubectl_installed() {
+    echo -e "${BLUE}[2/5] Checking kubectl installation...${NC}"
+    if ! command -v kubectl &> /dev/null; then
+        echo -e "${RED}ERROR: kubectl is not installed.${NC}"
+        echo "Please install kubectl: https://kubernetes.io/docs/tasks/tools/"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ kubectl found: $(kubectl version --client --short 2>/dev/null || kubectl version --client)${NC}"
+}
+
+# Check if driver is available
+check_driver_available() {
+    echo -e "${BLUE}[3/5] Checking driver availability...${NC}"
+
+    case "$DRIVER" in
+        docker)
+            if ! command -v docker &> /dev/null; then
+                echo -e "${RED}ERROR: Docker is not installed or not in PATH.${NC}"
+                echo "Please install Docker: https://docs.docker.com/get-docker/"
+                exit 1
+            fi
+
+            # Check if Docker daemon is running
+            if ! docker info &> /dev/null; then
+                echo -e "${RED}ERROR: Docker daemon is not running.${NC}"
+                echo "Please start Docker Desktop or Docker daemon."
+                exit 1
+            fi
+            echo -e "${GREEN}✓ Docker driver available: $(docker --version)${NC}"
+            ;;
+
+        hyperv)
+            # Windows-specific checks could be added here
+            echo -e "${YELLOW}⚠ Hyper-V driver selected. Ensure Hyper-V is enabled on Windows Pro/Enterprise.${NC}"
+            ;;
+
+        virtualbox)
+            if ! command -v VBoxManage &> /dev/null; then
+                echo -e "${RED}ERROR: VirtualBox is not installed or not in PATH.${NC}"
+                echo "Please install VirtualBox: https://www.virtualbox.org/"
+                exit 1
+            fi
+            echo -e "${GREEN}✓ VirtualBox driver available: $(VBoxManage --version)${NC}"
+            ;;
+
+        kvm2)
+            # Linux-specific KVM checks
+            echo -e "${YELLOW}⚠ KVM2 driver selected. Ensure KVM is installed and libvirt is running.${NC}"
+            ;;
+
+        *)
+            echo -e "${RED}ERROR: Unknown driver '${DRIVER}'.${NC}"
+            echo "Supported drivers: docker, hyperv, virtualbox, kvm2"
+            exit 1
+            ;;
+    esac
+}
+
+# Validate resource allocation
+validate_resources() {
+    echo -e "${BLUE}[4/5] Validating resource allocation...${NC}"
+
+    # Validate CPU count
+    if [ "$CPU_COUNT" -lt 2 ]; then
+        echo -e "${RED}ERROR: CPU count must be at least 2. Provided: ${CPU_COUNT}${NC}"
+        exit 1
+    fi
+
+    if [ "$CPU_COUNT" -gt 32 ]; then
+        echo -e "${YELLOW}WARNING: CPU count ${CPU_COUNT} is very high. This may exceed host capabilities.${NC}"
+    fi
+
+    # Validate memory
+    if [ "$MEMORY_MB" -lt 2048 ]; then
+        echo -e "${RED}ERROR: Memory must be at least 2048 MB (2GB). Provided: ${MEMORY_MB}${NC}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ Resource allocation validated${NC}"
+    echo -e "  CPU: ${CPU_COUNT} cores"
+    echo -e "  Memory: ${MEMORY_MB} MB ($(echo "scale=2; $MEMORY_MB / 1024" | bc) GB)"
+    echo -e "  Disk: ${DISK_SIZE}"
+}
+
+# Check for existing cluster with same profile
+check_existing_cluster() {
+    echo -e "${BLUE}[5/5] Checking for existing cluster...${NC}"
+
+    if minikube profile list 2>/dev/null | grep -q "^| $PROFILE_NAME "; then
+        echo -e "${YELLOW}⚠ Cluster profile '${PROFILE_NAME}' already exists.${NC}"
+        echo -e "${YELLOW}Current status:${NC}"
+        minikube status -p "$PROFILE_NAME" || true
+
+        echo ""
+        read -p "Delete existing cluster and recreate? (y/N): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            echo -e "${BLUE}Deleting existing cluster...${NC}"
+            minikube delete -p "$PROFILE_NAME"
+            echo -e "${GREEN}✓ Existing cluster deleted${NC}"
+        else
+            echo -e "${YELLOW}Starting existing cluster instead...${NC}"
+            minikube start -p "$PROFILE_NAME"
+            minikube profile "$PROFILE_NAME"
+            return 0
+        fi
+    else
+        echo -e "${GREEN}✓ No existing cluster found. Ready to create new cluster.${NC}"
+    fi
+}
+
+##############################################################################
+# Cluster Creation Functions
+##############################################################################
+
+# Start Minikube cluster
+start_cluster() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Starting Minikube Cluster: ${PROFILE_NAME}${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Build Minikube start command with all flags
+    MINIKUBE_CMD=(
+        minikube start
+        --profile="$PROFILE_NAME"
+        --driver="$DRIVER"
+        --cpus="$CPU_COUNT"
+        --memory="$MEMORY_MB"
+        --disk-size="$DISK_SIZE"
+        --kubernetes-version="$K8S_VERSION"
+        --container-runtime="$CONTAINER_RUNTIME"
+    )
+
+    # Execute start command
+    echo -e "${YELLOW}Command: ${MINIKUBE_CMD[*]}${NC}"
+    echo ""
+
+    if "${MINIKUBE_CMD[@]}"; then
+        echo ""
+        echo -e "${GREEN}✓ Cluster started successfully!${NC}"
+    else
+        echo ""
+        echo -e "${RED}✗ Cluster start failed.${NC}"
+        echo -e "${RED}Check error messages above for details.${NC}"
+        exit 1
+    fi
+}
+
+# Set as active profile
+set_active_profile() {
+    echo ""
+    echo -e "${BLUE}Setting '${PROFILE_NAME}' as active profile...${NC}"
+    minikube profile "$PROFILE_NAME"
+    echo -e "${GREEN}✓ Active profile set to '${PROFILE_NAME}'${NC}"
+}
+
+# Wait for cluster to be ready
+wait_for_cluster_ready() {
+    echo ""
+    echo -e "${BLUE}Waiting for cluster to be ready...${NC}"
+
+    # Wait for nodes to be Ready (timeout: 180 seconds)
+    echo -e "${YELLOW}Checking node status...${NC}"
+    for i in {1..36}; do
+        if kubectl get nodes 2>/dev/null | grep -q " Ready "; then
+            echo -e "${GREEN}✓ Node is Ready${NC}"
+            break
+        fi
+
+        if [ $i -eq 36 ]; then
+            echo -e "${RED}✗ Timeout waiting for node to be Ready${NC}"
+            exit 1
+        fi
+
+        echo -n "."
+        sleep 5
+    done
+
+    # Wait for system pods to be Running
+    echo ""
+    echo -e "${YELLOW}Checking system pods...${NC}"
+    for i in {1..24}; do
+        PENDING_PODS=$(kubectl get pods -n kube-system --no-headers 2>/dev/null | grep -v -E "Running|Completed" | wc -l)
+
+        if [ "$PENDING_PODS" -eq 0 ]; then
+            echo -e "${GREEN}✓ All system pods are Running or Completed${NC}"
+            break
+        fi
+
+        if [ $i -eq 24 ]; then
+            echo -e "${RED}✗ Timeout waiting for system pods to be ready${NC}"
+            kubectl get pods -n kube-system
+            exit 1
+        fi
+
+        echo -n "."
+        sleep 5
+    done
+
+    echo ""
+    echo -e "${GREEN}✓ Cluster is ready!${NC}"
+}
+
+# Enable addons
+enable_addons() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Enabling Addons${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    for addon in "${ADDONS[@]}"; do
+        echo -e "${YELLOW}Enabling addon: ${addon}...${NC}"
+
+        if minikube addons enable "$addon" -p "$PROFILE_NAME"; then
+            echo -e "${GREEN}✓ ${addon} enabled${NC}"
+        else
+            echo -e "${RED}✗ Failed to enable ${addon}${NC}"
+            echo -e "${YELLOW}Continuing with other addons...${NC}"
+        fi
+        echo ""
+    done
+}
+
+# Wait for addons to be ready
+wait_for_addons_ready() {
+    echo ""
+    echo -e "${BLUE}Waiting for addons to be ready...${NC}"
+
+    # Wait for ingress-nginx controller
+    if [[ " ${ADDONS[*]} " =~ " ingress " ]]; then
+        echo -e "${YELLOW}Waiting for ingress-nginx controller...${NC}"
+        kubectl wait --namespace ingress-nginx \
+            --for=condition=ready pod \
+            --selector=app.kubernetes.io/component=controller \
+            --timeout=120s 2>/dev/null || echo -e "${YELLOW}⚠ Ingress controller not ready yet (this is normal, it may take a few more minutes)${NC}"
+    fi
+
+    # Wait for metrics-server (give it time to start collecting metrics)
+    if [[ " ${ADDONS[*]} " =~ " metrics-server " ]]; then
+        echo -e "${YELLOW}Waiting for metrics-server (60s delay for metric collection)...${NC}"
+        sleep 60
+
+        # Verify metrics-server is collecting data
+        if kubectl top node &>/dev/null; then
+            echo -e "${GREEN}✓ Metrics-server is collecting metrics${NC}"
+        else
+            echo -e "${YELLOW}⚠ Metrics-server may need more time (2-3 minutes total)${NC}"
+        fi
+    fi
+
+    echo -e "${GREEN}✓ Addons configured${NC}"
+}
+
+##############################################################################
+# Display Functions
+##############################################################################
+
+# Display cluster information
+display_cluster_info() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Cluster Ready!${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Cluster status
+    echo -e "${BLUE}Cluster Status:${NC}"
+    minikube status -p "$PROFILE_NAME"
+    echo ""
+
+    # Node information
+    echo -e "${BLUE}Node Information:${NC}"
+    kubectl get nodes -o wide
+    echo ""
+
+    # Resource allocation
+    echo -e "${BLUE}Resource Allocation:${NC}"
+    kubectl get nodes -o custom-columns=NAME:.metadata.name,CPU:.status.allocatable.cpu,MEMORY:.status.allocatable.memory
+    echo ""
+
+    # Enabled addons
+    echo -e "${BLUE}Enabled Addons:${NC}"
+    minikube addons list -p "$PROFILE_NAME" | grep enabled
+    echo ""
+
+    # Cluster IP
+    CLUSTER_IP=$(minikube ip -p "$PROFILE_NAME" 2>/dev/null || echo "N/A")
+    echo -e "${BLUE}Cluster IP:${NC} ${CLUSTER_IP}"
+    echo ""
+}
+
+# Display next steps
+display_next_steps() {
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Next Steps:${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "1. ${YELLOW}Verify cluster health:${NC}"
+    echo -e "   kubectl get pods -A"
+    echo ""
+    echo -e "2. ${YELLOW}Add cluster IP to hosts file (for ingress):${NC}"
+    CLUSTER_IP=$(minikube ip -p "$PROFILE_NAME" 2>/dev/null || echo "<CLUSTER_IP>")
+    echo -e "   ${CLUSTER_IP} todo.local api.todo.local"
+    echo ""
+    echo -e "3. ${YELLOW}Access Kubernetes Dashboard:${NC}"
+    echo -e "   minikube dashboard -p ${PROFILE_NAME}"
+    echo ""
+    echo -e "4. ${YELLOW}Check metrics (wait 2-3 minutes after start):${NC}"
+    echo -e "   kubectl top nodes"
+    echo -e "   kubectl top pods -A"
+    echo ""
+    echo -e "5. ${YELLOW}Deploy your application:${NC}"
+    echo -e "   kubectl apply -f <your-manifests>"
+    echo ""
+    echo -e "${GREEN}Happy Kubernetes development!${NC}"
+    echo ""
+}
+
+##############################################################################
+# Main Execution
+##############################################################################
+
+main() {
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Minikube Cluster Initialization${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Pre-flight checks
+    check_minikube_installed
+    check_kubectl_installed
+    check_driver_available
+    validate_resources
+    check_existing_cluster
+
+    # Cluster creation
+    start_cluster
+    set_active_profile
+    wait_for_cluster_ready
+
+    # Addon configuration
+    enable_addons
+    wait_for_addons_ready
+
+    # Display results
+    display_cluster_info
+    display_next_steps
+}
+
+# Expected output:
+# - Cluster started and running in RUNNING state
+# - All system pods in Running or Completed state
+# - Ingress, metrics-server, and dashboard addons enabled
+# - Cluster IP accessible from host
+# - kubectl commands work without errors
+
+# Error handling:
+# - Pre-flight validation catches configuration issues early
+# - Timeouts prevent infinite waits
+# - Clear error messages guide user to resolution
+# - Graceful handling of existing clusters
+
+# Run main function
+main "$@"

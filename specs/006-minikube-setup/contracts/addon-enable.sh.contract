@@ -1,0 +1,427 @@
+#!/bin/bash
+
+##############################################################################
+# Minikube Addon Enablement Script (Contract)
+##############################################################################
+# Description: Enable and configure Minikube addons with health verification
+# Version: 1.0
+# Feature: 006-minikube-setup
+# Created: 2025-12-30
+##############################################################################
+
+set -e  # Exit on any error
+set -u  # Exit on undefined variable
+
+##############################################################################
+# Configuration Variables
+##############################################################################
+
+# Cluster profile name
+PROFILE_NAME="${MINIKUBE_PROFILE:-todo-dev}"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+##############################################################################
+# Addon Enablement Functions
+##############################################################################
+
+# Enable ingress addon
+enable_ingress() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Enabling NGINX Ingress Controller${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Check if already enabled
+    if minikube addons list -p "$PROFILE_NAME" | grep "ingress" | grep -q "enabled"; then
+        echo -e "${YELLOW}⚠ Ingress addon is already enabled${NC}"
+        echo -e "${BLUE}Current status:${NC}"
+        kubectl get pods -n ingress-nginx
+        return 0
+    fi
+
+    # Enable the addon
+    echo -e "${YELLOW}Enabling ingress addon...${NC}"
+    if minikube addons enable ingress -p "$PROFILE_NAME"; then
+        echo -e "${GREEN}✓ Ingress addon enabled${NC}"
+    else
+        echo -e "${RED}✗ Failed to enable ingress addon${NC}"
+        exit 1
+    fi
+
+    # Wait for ingress controller to be ready
+    echo ""
+    echo -e "${YELLOW}Waiting for ingress-nginx controller to be ready...${NC}"
+    echo -e "${BLUE}This may take up to 2 minutes...${NC}"
+
+    if kubectl wait --namespace ingress-nginx \
+        --for=condition=ready pod \
+        --selector=app.kubernetes.io/component=controller \
+        --timeout=120s; then
+        echo -e "${GREEN}✓ Ingress controller is ready${NC}"
+    else
+        echo -e "${YELLOW}⚠ Ingress controller is taking longer than expected${NC}"
+        echo -e "${YELLOW}Check status with: kubectl get pods -n ingress-nginx${NC}"
+    fi
+
+    # Display ingress controller status
+    echo ""
+    echo -e "${BLUE}Ingress Controller Status:${NC}"
+    kubectl get pods -n ingress-nginx
+    echo ""
+    kubectl get services -n ingress-nginx
+
+    # Display ingress configuration tips
+    echo ""
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Ingress Controller Configuration Tips:${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "1. ${YELLOW}Add cluster IP to /etc/hosts:${NC}"
+    CLUSTER_IP=$(minikube ip -p "$PROFILE_NAME" 2>/dev/null || echo "<CLUSTER_IP>")
+    echo -e "   ${CLUSTER_IP} todo.local api.todo.local"
+    echo ""
+    echo -e "2. ${YELLOW}Create an Ingress resource:${NC}"
+    cat <<'EOF'
+   apiVersion: networking.k8s.io/v1
+   kind: Ingress
+   metadata:
+     name: todo-ingress
+     annotations:
+       nginx.ingress.kubernetes.io/rewrite-target: /
+   spec:
+     ingressClassName: nginx
+     rules:
+     - host: todo.local
+       http:
+         paths:
+         - path: /
+           pathType: Prefix
+           backend:
+             service:
+               name: frontend-service
+               port:
+                 number: 3000
+EOF
+    echo ""
+    echo -e "3. ${YELLOW}Test ingress routing:${NC}"
+    echo -e "   curl http://todo.local"
+    echo ""
+}
+
+# Enable metrics-server addon
+enable_metrics_server() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Enabling Metrics Server${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Check if already enabled
+    if minikube addons list -p "$PROFILE_NAME" | grep "metrics-server" | grep -q "enabled"; then
+        echo -e "${YELLOW}⚠ Metrics-server addon is already enabled${NC}"
+        echo -e "${BLUE}Current status:${NC}"
+        kubectl get pods -n kube-system -l k8s-app=metrics-server
+        return 0
+    fi
+
+    # Enable the addon
+    echo -e "${YELLOW}Enabling metrics-server addon...${NC}"
+    if minikube addons enable metrics-server -p "$PROFILE_NAME"; then
+        echo -e "${GREEN}✓ Metrics-server addon enabled${NC}"
+    else
+        echo -e "${RED}✗ Failed to enable metrics-server addon${NC}"
+        exit 1
+    fi
+
+    # Wait for metrics-server to be ready
+    echo ""
+    echo -e "${YELLOW}Waiting for metrics-server to be ready...${NC}"
+
+    # Wait for deployment to be ready
+    if kubectl wait --namespace kube-system \
+        --for=condition=available deployment/metrics-server \
+        --timeout=120s; then
+        echo -e "${GREEN}✓ Metrics-server deployment is ready${NC}"
+    else
+        echo -e "${YELLOW}⚠ Metrics-server is taking longer than expected${NC}"
+    fi
+
+    # Wait for metrics to be collected (requires additional time)
+    echo ""
+    echo -e "${YELLOW}Waiting for metrics collection to start (60 seconds)...${NC}"
+    echo -e "${BLUE}Metrics-server needs time to scrape kubelet metrics${NC}"
+
+    for i in {1..12}; do
+        sleep 5
+        echo -n "."
+    done
+    echo ""
+
+    # Verify metrics are available
+    echo ""
+    echo -e "${YELLOW}Verifying metrics availability...${NC}"
+
+    if kubectl top nodes &>/dev/null; then
+        echo -e "${GREEN}✓ Node metrics are available${NC}"
+        echo ""
+        kubectl top nodes
+    else
+        echo -e "${YELLOW}⚠ Node metrics not yet available (may need 1-2 more minutes)${NC}"
+        echo -e "${YELLOW}Try running: kubectl top nodes${NC}"
+    fi
+
+    echo ""
+    if kubectl top pods -A --no-headers &>/dev/null && [ $(kubectl top pods -A --no-headers | wc -l) -gt 0 ]; then
+        echo -e "${GREEN}✓ Pod metrics are available${NC}"
+        echo ""
+        echo -e "${BLUE}Sample pod metrics:${NC}"
+        kubectl top pods -A | head -10
+    else
+        echo -e "${YELLOW}⚠ Pod metrics not yet available (may need 1-2 more minutes)${NC}"
+        echo -e "${YELLOW}Try running: kubectl top pods -A${NC}"
+    fi
+
+    # Display metrics-server status
+    echo ""
+    echo -e "${BLUE}Metrics-server Status:${NC}"
+    kubectl get pods -n kube-system -l k8s-app=metrics-server
+
+    # Display usage tips
+    echo ""
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Metrics Server Usage:${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "1. ${YELLOW}View node resource usage:${NC}"
+    echo -e "   kubectl top nodes"
+    echo ""
+    echo -e "2. ${YELLOW}View pod resource usage:${NC}"
+    echo -e "   kubectl top pods -A"
+    echo -e "   kubectl top pods -n default"
+    echo ""
+    echo -e "3. ${YELLOW}View specific pod metrics:${NC}"
+    echo -e "   kubectl top pod <pod-name>"
+    echo ""
+    echo -e "4. ${YELLOW}Enable Horizontal Pod Autoscaler (HPA):${NC}"
+    echo -e "   kubectl autoscale deployment <name> --cpu-percent=80 --min=1 --max=5"
+    echo ""
+}
+
+# Enable dashboard addon
+enable_dashboard() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}Enabling Kubernetes Dashboard${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Check if already enabled
+    if minikube addons list -p "$PROFILE_NAME" | grep "dashboard" | grep -q "enabled"; then
+        echo -e "${YELLOW}⚠ Dashboard addon is already enabled${NC}"
+        echo -e "${BLUE}Current status:${NC}"
+        kubectl get pods -n kubernetes-dashboard
+        return 0
+    fi
+
+    # Enable the addon
+    echo -e "${YELLOW}Enabling dashboard addon...${NC}"
+    if minikube addons enable dashboard -p "$PROFILE_NAME"; then
+        echo -e "${GREEN}✓ Dashboard addon enabled${NC}"
+    else
+        echo -e "${RED}✗ Failed to enable dashboard addon${NC}"
+        exit 1
+    fi
+
+    # Wait for dashboard to be ready
+    echo ""
+    echo -e "${YELLOW}Waiting for dashboard to be ready...${NC}"
+
+    if kubectl wait --namespace kubernetes-dashboard \
+        --for=condition=ready pod \
+        --selector=k8s-app=kubernetes-dashboard \
+        --timeout=120s; then
+        echo -e "${GREEN}✓ Dashboard is ready${NC}"
+    else
+        echo -e "${YELLOW}⚠ Dashboard is taking longer than expected${NC}"
+    fi
+
+    # Display dashboard status
+    echo ""
+    echo -e "${BLUE}Dashboard Status:${NC}"
+    kubectl get pods -n kubernetes-dashboard
+    echo ""
+    kubectl get services -n kubernetes-dashboard
+
+    # Display access instructions
+    echo ""
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Dashboard Access Instructions:${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo -e "1. ${YELLOW}Quick access (opens browser automatically):${NC}"
+    echo -e "   minikube dashboard -p ${PROFILE_NAME}"
+    echo ""
+    echo -e "2. ${YELLOW}Get dashboard URL (without opening browser):${NC}"
+    echo -e "   minikube dashboard -p ${PROFILE_NAME} --url"
+    echo ""
+    echo -e "3. ${YELLOW}Manual access via kubectl proxy:${NC}"
+    echo -e "   kubectl proxy"
+    echo -e "   Then visit: http://localhost:8001/api/v1/namespaces/kubernetes-dashboard/services/http:kubernetes-dashboard:/proxy/"
+    echo ""
+    echo -e "4. ${YELLOW}Port-forward to dashboard service:${NC}"
+    echo -e "   kubectl port-forward -n kubernetes-dashboard service/kubernetes-dashboard 8080:80"
+    echo -e "   Then visit: http://localhost:8080"
+    echo ""
+}
+
+# Display all addon statuses
+display_addon_status() {
+    echo ""
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${BLUE}All Addon Status${NC}"
+    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    echo -e "${BLUE}Enabled addons:${NC}"
+    minikube addons list -p "$PROFILE_NAME" | grep enabled
+
+    echo ""
+    echo -e "${BLUE}All addon pods:${NC}"
+    echo ""
+    echo -e "${YELLOW}Ingress-nginx namespace:${NC}"
+    kubectl get pods -n ingress-nginx 2>/dev/null || echo "No ingress pods found"
+
+    echo ""
+    echo -e "${YELLOW}Kubernetes-dashboard namespace:${NC}"
+    kubectl get pods -n kubernetes-dashboard 2>/dev/null || echo "No dashboard pods found"
+
+    echo ""
+    echo -e "${YELLOW}Metrics-server (kube-system namespace):${NC}"
+    kubectl get pods -n kube-system -l k8s-app=metrics-server 2>/dev/null || echo "No metrics-server pods found"
+}
+
+##############################################################################
+# Validation Functions
+##############################################################################
+
+# Check if cluster is running
+check_cluster_running() {
+    echo -e "${BLUE}Checking cluster status...${NC}"
+
+    # Check if profile exists
+    if ! minikube profile list 2>/dev/null | grep -q "^| $PROFILE_NAME "; then
+        echo -e "${RED}ERROR: Cluster profile '${PROFILE_NAME}' does not exist.${NC}"
+        echo -e "${YELLOW}Create cluster first with: minikube start -p ${PROFILE_NAME}${NC}"
+        exit 1
+    fi
+
+    # Check if cluster is running
+    CLUSTER_STATUS=$(minikube status -p "$PROFILE_NAME" --format='{{.Host}}' 2>/dev/null || echo "Stopped")
+
+    if [ "$CLUSTER_STATUS" != "Running" ]; then
+        echo -e "${RED}ERROR: Cluster '${PROFILE_NAME}' is not running.${NC}"
+        echo -e "${YELLOW}Start cluster with: minikube start -p ${PROFILE_NAME}${NC}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ Cluster '${PROFILE_NAME}' is running${NC}"
+}
+
+# Check kubectl connectivity
+check_kubectl_connectivity() {
+    echo -e "${BLUE}Checking kubectl connectivity...${NC}"
+
+    if ! kubectl get nodes &>/dev/null; then
+        echo -e "${RED}ERROR: Cannot connect to cluster with kubectl.${NC}"
+        echo -e "${YELLOW}Ensure kubectl context is set correctly.${NC}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ kubectl is connected to cluster${NC}"
+}
+
+##############################################################################
+# Main Execution
+##############################################################################
+
+main() {
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Minikube Addon Enablement${NC}"
+    echo -e "${GREEN}Profile: ${PROFILE_NAME}${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Parse command-line arguments
+    if [ $# -eq 0 ]; then
+        echo -e "${BLUE}Enabling all core addons (ingress, metrics-server, dashboard)${NC}"
+        echo ""
+        ENABLE_ALL=true
+    else
+        ENABLE_ALL=false
+    fi
+
+    # Pre-flight checks
+    check_cluster_running
+    check_kubectl_connectivity
+
+    # Enable addons based on arguments or all if none specified
+    if [ "$ENABLE_ALL" = true ]; then
+        enable_ingress
+        enable_metrics_server
+        enable_dashboard
+    else
+        for addon in "$@"; do
+            case "$addon" in
+                ingress)
+                    enable_ingress
+                    ;;
+                metrics-server)
+                    enable_metrics_server
+                    ;;
+                dashboard)
+                    enable_dashboard
+                    ;;
+                *)
+                    echo -e "${YELLOW}⚠ Unknown addon: ${addon}${NC}"
+                    echo -e "${BLUE}Supported addons: ingress, metrics-server, dashboard${NC}"
+                    ;;
+            esac
+        done
+    fi
+
+    # Display final status
+    display_addon_status
+
+    echo ""
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}Addon Enablement Complete!${NC}"
+    echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+}
+
+# Expected output:
+# - All specified addons enabled and running
+# - Pods in Running state in respective namespaces
+# - Configuration tips and access instructions displayed
+# - Metrics available (after 2-3 minute delay)
+
+# Error handling:
+# - Validates cluster is running before attempting addon enablement
+# - Checks kubectl connectivity
+# - Provides clear instructions if cluster is not ready
+# - Graceful handling of already-enabled addons
+
+# Usage examples:
+# ./addon-enable.sh                    # Enable all addons
+# ./addon-enable.sh ingress            # Enable only ingress
+# ./addon-enable.sh ingress dashboard  # Enable multiple addons
+
+# Run main function
+main "$@"

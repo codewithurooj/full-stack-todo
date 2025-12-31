@@ -1,0 +1,394 @@
+# Docker Compose Contract
+# Complete Production-Ready Orchestration Configuration
+# Version: 3.8 (Docker Compose file format)
+# Target: Local development and production testing
+# Research: specs/001-docker-containerization/research.md
+
+version: '3.8'
+
+# ==============================================================================
+# Services Definition
+# ==============================================================================
+
+services:
+  # ============================================================================
+  # Backend Service (FastAPI + SQLModel + Python 3.13)
+  # ============================================================================
+  backend:
+    # Build configuration
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      # Cache from existing image for faster rebuilds
+      cache_from:
+        - backend:latest
+
+    # Image name for this service
+    image: todo-backend:latest
+
+    # Container name (optional, useful for docker exec)
+    container_name: todo-backend
+
+    # Port mapping: host:container
+    # Exposes backend API on http://localhost:8000
+    ports:
+      - "8000:8000"
+
+    # Environment variables (build-time, non-sensitive)
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+
+    # Load environment variables from .env file
+    # Includes DATABASE_URL, BETTER_AUTH_SECRET, OPENAI_API_KEY
+    env_file:
+      - .env
+
+    # Network configuration
+    networks:
+      - todo-network
+
+    # Health check configuration
+    # Matches Dockerfile HEALTHCHECK but can override parameters
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 3s
+      start_period: 40s
+      retries: 3
+
+    # Restart policy: restart unless explicitly stopped
+    restart: unless-stopped
+
+    # Resource limits (optional but recommended)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # ============================================================================
+  # Frontend Service (Next.js 15+ + TypeScript)
+  # ============================================================================
+  frontend:
+    # Build configuration
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      cache_from:
+        - frontend:latest
+
+    # Image name for this service
+    image: todo-frontend:latest
+
+    # Container name (optional)
+    container_name: todo-frontend
+
+    # Port mapping: host:container
+    # Exposes frontend UI on http://localhost:3000
+    ports:
+      - "3000:3000"
+
+    # Environment variables (build-time and runtime)
+    environment:
+      - NODE_ENV=production
+      - NEXT_TELEMETRY_DISABLED=1
+      # Override API URL for container networking
+      # Frontend uses 'backend' hostname to reach backend service
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+
+    # Load additional variables from .env file
+    # Includes BETTER_AUTH_SECRET, NEXT_PUBLIC_OPENAI_DOMAIN_KEY
+    env_file:
+      - .env
+
+    # Dependency management: wait for backend health check
+    # Frontend only starts after backend reports healthy
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    # Network configuration
+    networks:
+      - todo-network
+
+    # Health check configuration
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      start_period: 40s
+      retries: 3
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+# ==============================================================================
+# Networks Definition
+# ==============================================================================
+
+networks:
+  todo-network:
+    # Bridge driver for local networking
+    driver: bridge
+
+    # IPAM configuration (IP address management)
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1
+
+    # Network properties
+    internal: false      # Allow external access
+    attachable: true     # Allow other containers to attach
+
+# ==============================================================================
+# Usage Instructions
+# ==============================================================================
+
+# Build and start all services:
+#   docker-compose up --build
+#
+# Start services in detached mode:
+#   docker-compose up -d
+#
+# View logs:
+#   docker-compose logs -f
+#   docker-compose logs -f backend
+#   docker-compose logs -f frontend
+#
+# Check health status:
+#   docker-compose ps
+#
+# Stop services:
+#   docker-compose down
+#
+# Remove volumes and networks:
+#   docker-compose down -v --remove-orphans
+#
+# Rebuild specific service:
+#   docker-compose up --build backend
+#
+# Run command in service:
+#   docker-compose exec backend python -m pytest
+#   docker-compose exec frontend npm run test
+
+# ==============================================================================
+# Service Discovery and Networking
+# ==============================================================================
+
+# Container-to-Container Communication:
+# - Backend accessible at: http://backend:8000 (from frontend)
+# - Frontend accessible at: http://frontend:3000 (from backend)
+# - Docker DNS automatically resolves service names to container IPs
+#
+# Host-to-Container Communication:
+# - Backend accessible at: http://localhost:8000
+# - Frontend accessible at: http://localhost:3000
+#
+# Browser-to-Services:
+# - Frontend UI: http://localhost:3000
+# - Backend API: http://localhost:8000/docs (Swagger UI)
+#
+# Network Isolation:
+# - Both services on same network (todo-network)
+# - External database (Neon) accessible via DATABASE_URL
+
+# ==============================================================================
+# Environment Variables Required
+# ==============================================================================
+
+# Create .env file in project root with:
+#
+# # Database (Neon PostgreSQL)
+# DATABASE_URL=postgresql://user:pass@host.neon.tech/dbname
+#
+# # Authentication (shared secret)
+# BETTER_AUTH_SECRET=your-secret-key-minimum-32-characters-long
+#
+# # API Keys (optional)
+# OPENAI_API_KEY=sk-your-openai-api-key
+# NEXT_PUBLIC_OPENAI_DOMAIN_KEY=your-openai-domain-key
+#
+# Generate BETTER_AUTH_SECRET:
+#   openssl rand -hex 32
+
+# ==============================================================================
+# Health Check Behavior
+# ==============================================================================
+
+# Health Check States:
+# - starting: Within start_period, health checks don't count against retries
+# - healthy: Health check passed (returns exit code 0)
+# - unhealthy: Health check failed after retries (returns non-zero exit code)
+#
+# Startup Sequence with Health Checks:
+# 1. docker-compose up starts backend container
+# 2. Backend health check runs every 30s
+# 3. After 40s (start_period), health checks count toward retries
+# 4. When backend reports healthy, frontend container starts
+# 5. Frontend health check runs every 30s
+# 6. After 40s, frontend should report healthy
+# 7. All services ready
+#
+# If Health Check Fails:
+# - Container marked unhealthy after 3 retries (90 seconds)
+# - Restart policy triggers (unless-stopped)
+# - Container restarts automatically
+# - Process repeats until healthy or manually stopped
+
+# ==============================================================================
+# Resource Limits Explanation
+# ==============================================================================
+
+# limits.cpus: '1.0'
+# - Maximum of 1 CPU core
+# - Prevents container from consuming all host CPU
+#
+# limits.memory: 512M
+# - Maximum of 512MB RAM
+# - Container killed if exceeds limit (OOMKilled)
+#
+# reservations.cpus: '0.5'
+# - Guaranteed 0.5 CPU core
+# - Host scheduler ensures reservation
+#
+# reservations.memory: 256M
+# - Guaranteed 256MB RAM
+# - Host ensures memory available
+#
+# Benefits:
+# - Prevents resource starvation
+# - Predictable performance
+# - Production-like resource constraints
+#
+# Adjust based on:
+# - Host machine resources
+# - Application requirements
+# - Number of concurrent users
+
+# ==============================================================================
+# depends_on with Health Checks
+# ==============================================================================
+
+# Basic depends_on (NOT RECOMMENDED):
+#   depends_on:
+#     - backend
+# - Only waits for backend container to start
+# - Does NOT wait for backend to be ready
+# - May cause connection errors in frontend
+#
+# Advanced depends_on with health check (RECOMMENDED):
+#   depends_on:
+#     backend:
+#       condition: service_healthy
+# - Waits for backend health check to pass
+# - Frontend starts only when backend is ready
+# - Prevents connection errors
+# - Ensures proper startup order
+
+# ==============================================================================
+# Development vs Production
+# ==============================================================================
+
+# This configuration is production-ready but can be used for development:
+#
+# Development Usage:
+# - Use docker-compose up for containerized testing
+# - Use npm run dev and uvicorn --reload for local development
+# - Mount volumes for hot-reload (optional, see docker-compose.dev.yml)
+#
+# Production Usage (Kubernetes):
+# - This docker-compose.yml validates containerization
+# - Kubernetes deployments use similar configuration
+# - Health checks map to liveness/readiness probes
+# - Resource limits map to Kubernetes resource requests/limits
+# - Service discovery maps to Kubernetes services
+
+# ==============================================================================
+# Troubleshooting
+# ==============================================================================
+
+# Issue: Backend not starting
+# Solution: Check logs with docker-compose logs backend
+#          Verify DATABASE_URL in .env
+#
+# Issue: Frontend cannot reach backend
+# Solution: Ensure NEXT_PUBLIC_API_URL=http://backend:8000
+#          Verify both services on same network
+#          Check CORS configuration in backend
+#
+# Issue: Port already in use
+# Solution: Change host port in ports mapping (e.g., "3001:3000")
+#          Stop other services using those ports
+#
+# Issue: Health check failing
+# Solution: Increase start_period (e.g., 60s)
+#          Check health endpoint exists and returns 200
+#          Verify health check command syntax
+#
+# Issue: Out of memory
+# Solution: Increase memory limits in deploy.resources
+#          Check for memory leaks in application
+#          Reduce concurrent requests
+#
+# Issue: Cannot connect to database
+# Solution: Verify DATABASE_URL format and credentials
+#          Ensure Neon database allows connections from your IP
+#          Check network connectivity
+
+# ==============================================================================
+# Security Considerations
+# ==============================================================================
+
+# .env File Security:
+# - Add .env to .gitignore (NEVER commit secrets)
+# - Provide .env.example with placeholder values
+# - Use strong secrets (32+ characters)
+# - Rotate secrets regularly
+#
+# Container Security:
+# - Both containers run as non-root users (UID 1001)
+# - Minimal base images (Alpine/Slim)
+# - No secrets in Dockerfile or images
+# - Regular security scanning (trivy, docker scout)
+#
+# Network Security:
+# - Internal network for service communication
+# - Only necessary ports exposed to host
+# - CORS properly configured in backend
+# - Database connection via secure PostgreSQL protocol
+
+# ==============================================================================
+# Additional Resources
+# ==============================================================================
+
+# Docker Compose Documentation:
+# - https://docs.docker.com/compose/compose-file/
+#
+# Health Checks:
+# - https://docs.docker.com/engine/reference/builder/#healthcheck
+#
+# Networking:
+# - https://docs.docker.com/compose/networking/
+#
+# Resource Limits:
+# - https://docs.docker.com/compose/compose-file/deploy/
+#
+# Project Research:
+# - specs/001-docker-containerization/research.md
+# - specs/001-docker-containerization/data-model.md
