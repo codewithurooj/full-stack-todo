@@ -1,0 +1,17 @@
+apiVersion: v2
+name: todo-backend
+description: A Helm chart for FastAPI Todo Backend API
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - fastapi
+  - todo
+  - backend
+  - api
+maintainers:
+  - name: Todo App Team
+    email: team@example.com
+home: https://github.com/yourusername/full-stack-todo
+sources:
+  - https://github.com/yourusername/full-stack-todo

@@ -1,0 +1,20 @@
+# Hello World Service for Ingress Testing
+# Feature: 006-minikube-setup / US2 - Enable Ingress Controller
+# Purpose: ClusterIP service to backend hello-world deployment
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello-world
+  namespace: default
+  labels:
+    app: hello-world
+spec:
+  type: ClusterIP
+  selector:
+    app: hello-world
+  ports:
+  - port: 80
+    targetPort: 8080
+    protocol: TCP
+    name: http

@@ -295,3 +295,115 @@ MIT
 ---
 
 **Built with spec-driven development using Claude Code!** 🚀
+
+## ☸️ Kubernetes Setup (Minikube)
+
+### Local Kubernetes Cluster for Development
+
+This project includes complete Minikube setup scripts for running the application in a local Kubernetes environment.
+
+**Features:**
+- 🎯 One-command cluster initialization
+- 🔌 NGINX Ingress Controller for HTTP/HTTPS routing
+- 📊 Metrics Server for resource monitoring
+- 🌐 Kubernetes Dashboard for visual management
+- ✅ Comprehensive health verification
+- 🧹 Safe cleanup and management tools
+
+### Quick Start
+
+1. **Install Prerequisites**
+   - Minikube 1.32+ ([Installation Guide](https://minikube.sigs.k8s.io/docs/start/))
+   - kubectl 1.28+ ([Installation Guide](https://kubernetes.io/docs/tasks/tools/))
+   - Docker 20.10+ ([Installation Guide](https://docs.docker.com/get-docker/))
+
+2. **Start Cluster**
+   ```bash
+   ./scripts/minikube/start-cluster.sh
+   ```
+
+3. **Enable Addons**
+   ```bash
+   ./scripts/minikube/enable-addons.sh all
+   ```
+
+4. **Verify Health**
+   ```bash
+   ./scripts/minikube/verify-health.sh
+   ```
+
+5. **Access Dashboard**
+   ```bash
+   minikube dashboard -p todo-dev
+   ```
+
+### Cluster Configuration
+
+- **Profile:** `todo-dev`
+- **Driver:** Docker (cross-platform compatible)
+- **Resources:** 4 CPUs, 8GB RAM, 40GB disk
+- **Kubernetes Version:** Latest stable
+
+### Available Scripts
+
+| Script | Purpose |
+|--------|---------|
+| `start-cluster.sh` | Initialize Minikube cluster with resources |
+| `enable-addons.sh` | Enable and verify addons (ingress, metrics, dashboard) |
+| `verify-health.sh` | Comprehensive health check (11 tests) |
+| `cleanup.sh` | Stop, pause, or delete cluster safely |
+
+### Documentation
+
+Complete setup guide: [docs/minikube-setup.md](docs/minikube-setup.md)
+
+### Common Commands
+
+```bash
+# Cluster management
+minikube start -p todo-dev              # Start cluster
+minikube stop -p todo-dev               # Stop cluster (preserves data)
+minikube delete -p todo-dev             # Delete cluster
+
+# kubectl basics
+kubectl get nodes                       # Check node status
+kubectl get pods -A                     # List all pods
+kubectl top nodes                       # View resource usage
+
+# Addon management
+./scripts/minikube/enable-addons.sh ingress        # Enable ingress
+./scripts/minikube/enable-addons.sh metrics-server # Enable metrics
+./scripts/minikube/enable-addons.sh dashboard      # Enable dashboard
+./scripts/minikube/enable-addons.sh status         # Show addon status
+```
+
+### Deploying Todo App to Minikube
+
+```bash
+# 1. Start cluster
+./scripts/minikube/start-cluster.sh
+
+# 2. Enable ingress
+./scripts/minikube/enable-addons.sh ingress
+
+# 3. Deploy application manifests (example)
+kubectl apply -f kubernetes/examples/hello-world-deployment.yaml
+kubectl apply -f kubernetes/examples/hello-world-service.yaml
+kubectl apply -f kubernetes/examples/hello-world-ingress.yaml
+
+# 4. Add to hosts file
+echo "$(minikube ip -p todo-dev) todo.local" | sudo tee -a /etc/hosts
+
+# 5. Access application
+curl http://todo.local
+```
+
+### Troubleshooting
+
+See [docs/minikube-setup.md](docs/minikube-setup.md) for detailed troubleshooting guide covering:
+- Prerequisites not met
+- Resource constraints
+- Network connectivity issues
+- Addon failures
+- Performance optimization
+

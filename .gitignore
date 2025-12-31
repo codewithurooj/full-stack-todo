@@ -61,3 +61,11 @@ coverage/
 .vercel
 .temp/
 tmp/
+
+# Minikube local files
+.minikube/
+*.key
+*.crt
+*.pem
+kubeconfig*
+.kube/

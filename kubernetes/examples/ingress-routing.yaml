@@ -1,0 +1,259 @@
+# Comprehensive Ingress Routing Examples
+# Feature: 006-minikube-setup / US2 - Enable Ingress Controller
+# Purpose: Production-like ingress patterns for full-stack todo application
+
+# ==============================================================================
+# Backend Service (FastAPI)
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: default
+  labels:
+    app: backend
+    tier: api
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+  - port: 8000
+    targetPort: 8000
+    protocol: TCP
+    name: http
+
+---
+# ==============================================================================
+# Frontend Service (Next.js)
+# ==============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: default
+  labels:
+    app: frontend
+    tier: web
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+  - port: 3000
+    targetPort: 3000
+    protocol: TCP
+    name: http
+
+---
+# ==============================================================================
+# Main Application Ingress (Path-Based Routing)
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-ingress
+  namespace: default
+  annotations:
+    # Rewrite target for API paths
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # Disable SSL redirect for local development
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # CORS configuration
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "http://todo.local"
+    # Connection timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    # Request size limits
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  ingressClassName: nginx
+  rules:
+  # Main application routing
+  - host: todo.local
+    http:
+      paths:
+      # Frontend routes (all paths except /api)
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 3000
+
+      # Backend API routes (/api/*)
+      - path: /api(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+
+---
+# ==============================================================================
+# Subdomain-Based Routing Example (Alternative Pattern)
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-subdomain-ingress
+  namespace: default
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+  # Frontend on main domain
+  - host: todo.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 3000
+
+  # Backend on api subdomain
+  - host: api.todo.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+
+---
+# ==============================================================================
+# Ingress with HTTPS/TLS Example (For Production Reference)
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-tls-ingress
+  namespace: default
+  annotations:
+    # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # TLS configuration
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+    nginx.ingress.kubernetes.io/ssl-ciphers: "HIGH:!aNULL:!MD5"
+    # HSTS header
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - todo.local
+    secretName: todo-tls-secret  # Note: Create TLS secret separately
+  rules:
+  - host: todo.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend
+            port:
+              number: 3000
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+
+---
+# ==============================================================================
+# Ingress with Rate Limiting Example
+# ==============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-ratelimit-ingress
+  namespace: default
+  annotations:
+    # Rate limiting (requests per second per IP)
+    nginx.ingress.kubernetes.io/limit-rps: "10"
+    # Burst size
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: "5"
+    # Return 429 Too Many Requests
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: todo.local
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend
+            port:
+              number: 8000
+
+---
+# ==============================================================================
+# USAGE NOTES
+# ==============================================================================
+#
+# 1. Choose ONE ingress strategy (path-based OR subdomain-based)
+#    - Path-based: Single domain, routes by path (/api, /, etc.)
+#    - Subdomain-based: Multiple domains (api.todo.local, todo.local)
+#
+# 2. Hosts File Configuration:
+#    Get Minikube IP:
+#      minikube ip -p todo-dev
+#
+#    Add to hosts file:
+#      Windows: C:\Windows\System32\drivers\etc\hosts
+#      macOS/Linux: /etc/hosts
+#
+#    For path-based routing:
+#      <MINIKUBE_IP>  todo.local
+#
+#    For subdomain-based routing:
+#      <MINIKUBE_IP>  todo.local
+#      <MINIKUBE_IP>  api.todo.local
+#
+# 3. Deploy ingress:
+#    Path-based:
+#      kubectl apply -f kubernetes/examples/ingress-routing.yaml
+#      (Apply only the "todo-app-ingress" section)
+#
+#    Subdomain-based:
+#      kubectl apply -f kubernetes/examples/ingress-routing.yaml
+#      (Apply only the "todo-app-subdomain-ingress" section)
+#
+# 4. Test routing:
+#    Path-based:
+#      curl http://todo.local          # Frontend
+#      curl http://todo.local/api      # Backend API
+#
+#    Subdomain-based:
+#      curl http://todo.local          # Frontend
+#      curl http://api.todo.local      # Backend API
+#
+# 5. For TLS/HTTPS (production):
+#    Create TLS secret:
+#      kubectl create secret tls todo-tls-secret \
+#        --cert=path/to/cert.crt \
+#        --key=path/to/key.key
+#
+#    Then apply TLS ingress section
+#
+# 6. Annotations Reference:
+#    Full list: https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/

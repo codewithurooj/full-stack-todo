@@ -1,0 +1,347 @@
+##############################################################################
+# Minikube Ingress Configuration Example (Contract)
+##############################################################################
+# Description: Complete ingress routing for full-stack todo application
+# Version: 1.0
+# Feature: 006-minikube-setup
+# Created: 2025-12-30
+##############################################################################
+# Prerequisites:
+# 1. Minikube cluster running with ingress addon enabled
+# 2. Frontend and backend services deployed
+# 3. /etc/hosts entry: <CLUSTER_IP> todo.local api.todo.local
+#
+# Expected behavior:
+# - http://todo.local/ → Frontend UI (Next.js on port 3000)
+# - http://todo.local/api → Backend API (FastAPI on port 8000)
+# - http://api.todo.local → Backend API (alternative domain)
+##############################################################################
+
+---
+##############################################################################
+# Ingress Resource: Main Application Routing
+##############################################################################
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-ingress
+  namespace: default
+  annotations:
+    # Rewrite target URL path
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+
+    # Enable CORS for API endpoints
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "http://todo.local"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+
+    # Increase body size for file uploads (if needed)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # Proxy timeouts (useful for long-running API requests)
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+
+    # Additional headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+
+spec:
+  # Use nginx ingress class (from minikube ingress addon)
+  ingressClassName: nginx
+
+  rules:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Rule 1: Frontend routing (http://todo.local)
+  # ─────────────────────────────────────────────────────────────────────────
+  - host: todo.local
+    http:
+      paths:
+      # Backend API paths (priority: serve API routes first)
+      - path: /api(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+
+      # Health check endpoint
+      - path: /health(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+
+      # API documentation (FastAPI auto-generated docs)
+      - path: /docs(/|$)(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+
+      - path: /openapi.json
+        pathType: Exact
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+
+      # Frontend UI (catch-all for Next.js)
+      - path: /()(.*)
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 3000
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Rule 2: API-specific domain (http://api.todo.local)
+  # ─────────────────────────────────────────────────────────────────────────
+  - host: api.todo.local
+    http:
+      paths:
+      # All paths under api.todo.local go to backend
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+
+---
+##############################################################################
+# Alternative Ingress Configuration: Simple Path-Based Routing
+##############################################################################
+# Use this if you prefer simpler routing without regex rewriting
+##############################################################################
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-ingress-simple
+  namespace: default
+  annotations:
+    # Simple path prefix stripping for /api routes
+    nginx.ingress.kubernetes.io/rewrite-target: /
+
+    # Enable CORS
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+
+spec:
+  ingressClassName: nginx
+
+  rules:
+  - host: todo.local
+    http:
+      paths:
+      # Backend API: /api/* → backend-service:8000/*
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+
+      # Frontend UI: /* → frontend-service:3000/*
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 3000
+
+---
+##############################################################################
+# TLS/HTTPS Ingress Example (Optional)
+##############################################################################
+# Requires TLS secret with certificate
+# For development, you can create a self-signed certificate
+##############################################################################
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-ingress-tls
+  namespace: default
+  annotations:
+    # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # Rewrite rules
+    nginx.ingress.kubernetes.io/rewrite-target: /
+
+spec:
+  ingressClassName: nginx
+
+  # TLS configuration
+  tls:
+  - hosts:
+    - todo.local
+    - api.todo.local
+    secretName: todo-tls-secret  # Reference to TLS secret
+
+  rules:
+  - host: todo.local
+    http:
+      paths:
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 3000
+
+  - host: api.todo.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 8000
+
+---
+##############################################################################
+# TLS Secret Example (Self-Signed Certificate for Development)
+##############################################################################
+# Generate certificate with:
+# openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+#   -keyout tls.key -out tls.crt -subj "/CN=todo.local"
+# kubectl create secret tls todo-tls-secret --key tls.key --cert tls.crt
+##############################################################################
+
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: todo-tls-secret
+#   namespace: default
+# type: kubernetes.io/tls
+# data:
+#   tls.crt: <base64-encoded-certificate>
+#   tls.key: <base64-encoded-private-key>
+
+---
+##############################################################################
+# Usage Instructions
+##############################################################################
+# 1. Deploy backend and frontend services first
+#
+# 2. Apply ingress configuration:
+#    kubectl apply -f ingress-example.yaml
+#
+# 3. Get cluster IP:
+#    minikube ip -p todo-dev
+#
+# 4. Add to /etc/hosts (Linux/macOS) or C:\Windows\System32\drivers\etc\hosts (Windows):
+#    192.168.49.2 todo.local api.todo.local
+#
+# 5. Verify ingress status:
+#    kubectl get ingress
+#    kubectl describe ingress todo-app-ingress
+#
+# 6. Test endpoints:
+#    curl http://todo.local              # Frontend UI
+#    curl http://todo.local/api/health   # Backend API
+#    curl http://api.todo.local/health   # Backend via API domain
+#
+# 7. View ingress logs (for debugging):
+#    kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller
+#
+##############################################################################
+# Troubleshooting
+##############################################################################
+# Issue: "404 Not Found" from ingress
+# Solution: Check that services exist and have correct port numbers
+#    kubectl get services
+#
+# Issue: "503 Service Temporarily Unavailable"
+# Solution: Backend/frontend pods may not be ready
+#    kubectl get pods
+#    kubectl logs <pod-name>
+#
+# Issue: CORS errors in browser
+# Solution: Verify CORS annotations in ingress and backend service configuration
+#
+# Issue: Cannot resolve todo.local
+# Solution: Verify /etc/hosts entry and that cluster IP matches
+#    ping todo.local
+#    minikube ip -p todo-dev
+#
+# Issue: Ingress controller not running
+# Solution: Ensure ingress addon is enabled
+#    minikube addons enable ingress -p todo-dev
+#    kubectl get pods -n ingress-nginx
+##############################################################################
+
+---
+##############################################################################
+# Path Type Explanation
+##############################################################################
+# Prefix: Matches based on URL path prefix split by /
+#   Example: path=/api matches /api, /api/tasks, /api/tasks/123
+#
+# Exact: Matches exact path only
+#   Example: path=/api matches only /api (not /api/tasks)
+#
+# ImplementationSpecific: Implementation-defined matching (NGINX uses regex)
+#   Example: Allows complex regex patterns in rewrite-target annotation
+##############################################################################
+
+---
+##############################################################################
+# Expected Output
+##############################################################################
+# After applying this ingress configuration:
+#
+# $ kubectl get ingress
+# NAME                CLASS   HOSTS                         ADDRESS        PORTS   AGE
+# todo-app-ingress    nginx   todo.local,api.todo.local     192.168.49.2   80      5m
+#
+# $ kubectl describe ingress todo-app-ingress
+# Rules:
+#   Host          Path  Backends
+#   ----          ----  --------
+#   todo.local
+#                 /api(/|$)(.*)       backend-service:8000 (10.244.0.5:8000)
+#                 /health(/|$)(.*)    backend-service:8000 (10.244.0.5:8000)
+#                 /docs(/|$)(.*)      backend-service:8000 (10.244.0.5:8000)
+#                 /                   frontend-service:3000 (10.244.0.6:3000)
+#   api.todo.local
+#                 /                   backend-service:8000 (10.244.0.5:8000)
+#
+# $ curl http://todo.local
+# <!DOCTYPE html>  <!-- Next.js frontend HTML -->
+#
+# $ curl http://todo.local/api/health
+# {"status":"healthy","timestamp":"2025-12-30T10:30:00Z"}
+#
+# $ curl http://api.todo.local/health
+# {"status":"healthy","timestamp":"2025-12-30T10:30:00Z"}
+##############################################################################

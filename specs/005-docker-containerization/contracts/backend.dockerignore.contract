@@ -1,0 +1,450 @@
+# Backend .dockerignore Contract
+# Comprehensive exclusion patterns for FastAPI + Python 3.13 Docker builds
+# Purpose: Reduce build context size from ~200MB to ~5MB (97% reduction)
+# Research: specs/001-docker-containerization/research.md
+
+# ==============================================================================
+# Python Cache Files
+# Will be regenerated during runtime
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.pyc
+*.pyo
+*.pyd
+
+# ==============================================================================
+# Virtual Environments
+# Will be created in builder stage
+# ==============================================================================
+venv/
+env/
+ENV/
+.venv/
+.env/
+env.bak/
+venv.bak/
+pythonenv*/
+
+# ==============================================================================
+# Environment Files
+# Contains secrets, must NEVER be included in image
+# ==============================================================================
+.env
+.env.*
+.env.local
+.env.development
+.env.production
+.env.staging
+.env.test
+
+# Include .env.example for documentation (optional)
+!.env.example
+
+# ==============================================================================
+# Version Control
+# Not needed in container
+# ==============================================================================
+.git/
+.gitignore
+.gitattributes
+.gitmodules
+
+# ==============================================================================
+# IDE and Editor Files
+# Development tools only
+# ==============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*~
+.project
+.classpath
+.settings/
+.DS_Store
+.AppleDouble
+.LSOverride
+*.iml
+
+# ==============================================================================
+# Testing and Coverage
+# Tests not needed in production container
+# ==============================================================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+.cache/
+nosetests.xml
+pytest.ini
+setup.cfg
+tox.ini
+
+# Test files (various naming conventions)
+test_*.py
+*_test.py
+*.test.py
+tests/
+test/
+
+# ==============================================================================
+# Documentation
+# Not needed in runtime
+# ==============================================================================
+README.md
+CHANGELOG.md
+LICENSE
+LICENSE.txt
+CONTRIBUTING.md
+AUTHORS
+MANIFEST.in
+*.md
+*.rst
+docs/
+doc/
+.github/
+.gitlab/
+
+# ==============================================================================
+# Docker Files
+# Don't include Docker files in build context
+# ==============================================================================
+Dockerfile
+Dockerfile.*
+.dockerignore
+docker-compose.yml
+docker-compose.*.yml
+.docker/
+
+# ==============================================================================
+# Database Files
+# Migrations and local database files
+# ==============================================================================
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+migrations/
+alembic/
+*.sql
+
+# ==============================================================================
+# Distribution and Packaging
+# Build artifacts not needed
+# ==============================================================================
+dist/
+build/
+*.egg-info/
+*.egg
+*.whl
+.eggs/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ==============================================================================
+# Jupyter Notebooks
+# Development notebooks not needed
+# ==============================================================================
+.ipynb_checkpoints/
+*.ipynb
+profile_default/
+
+# ==============================================================================
+# Logs and Temporary Files
+# ==============================================================================
+logs/
+*.log
+*.log.*
+.mypy_cache/
+.dmypy.json
+dmypy.json
+*.pid
+*.seed
+
+# ==============================================================================
+# Development Configuration
+# Dev-only files not needed in production
+# ==============================================================================
+.flake8
+.pylintrc
+.pylint.d/
+.pycodestyle
+.pydocstyle
+.pydocstylerc
+.bandit
+.editorconfig
+.pre-commit-config.yaml
+mypy.ini
+setup.py
+setup.cfg
+pyproject.toml.bak
+
+# Note: Keep requirements.txt for pip install
+# Note: Keep pyproject.toml if using Poetry
+
+# ==============================================================================
+# OS Files
+# System-specific files
+# ==============================================================================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.Spotlight-V100/
+.Trashes/
+._*
+.fseventsd/
+.TemporaryItems/
+.VolumeIcon.icns/
+
+# ==============================================================================
+# Security and Credentials
+# ==============================================================================
+*.key
+*.pem
+*.cer
+*.crt
+*.p12
+*.pfx
+credentials.json
+service-account.json
+secrets/
+.secrets/
+
+# ==============================================================================
+# Miscellaneous
+# ==============================================================================
+*.tar.gz
+*.tgz
+*.gz
+*.zip
+*.rar
+*.7z
+*.bz2
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath
+*.sage.py
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Rope
+.ropeproject
+
+# mkdocs
+site/
+
+# ==============================================================================
+# Why Exclude Each Category
+# ==============================================================================
+
+# __pycache__/ (~20-50MB):
+# - Generated during runtime
+# - Python bytecode files
+# - Will be recreated automatically
+
+# venv/ (~100-200MB):
+# - Will be created fresh in builder stage
+# - Ensures consistent dependencies
+# - Reduces build context significantly
+
+# .env* (contains secrets):
+# - Never include secrets in Docker image
+# - Prevents credential leakage
+# - Environment-specific, not portable
+
+# .git/ (~50-200MB):
+# - Git history not needed
+# - Prevents credential leakage
+# - Reduces build context size
+
+# .pytest_cache/, .coverage (~10-20MB):
+# - Test artifacts not needed in production
+# - Reduces image size
+# - Faster builds
+
+# dist/, build/ (~10-50MB):
+# - Build artifacts from local development
+# - Will be generated fresh in container
+# - Not needed in production
+
+# ==============================================================================
+# Build Context Impact
+# ==============================================================================
+
+# Without .dockerignore:
+# - Build context: ~200MB
+# - Transfer time: 5-15 seconds
+# - Includes: venv, __pycache__, .git, tests, etc.
+
+# With .dockerignore:
+# - Build context: ~5MB
+# - Transfer time: <1 second
+# - Includes: Only app/ source code and requirements.txt
+# - Reduction: 97%
+
+# Verify build context size:
+#   docker build --progress=plain -t test:latest . 2>&1 | grep "Sending build context"
+
+# ==============================================================================
+# Negation Patterns (Advanced)
+# ==============================================================================
+
+# To exclude all .env files but include .env.example:
+# .env*
+# !.env.example
+
+# To exclude all tests but include specific file:
+# test_*.py
+# !test_critical.py
+
+# To exclude venv except specific package:
+# venv/
+# !venv/lib/python3.13/site-packages/critical-package/
+
+# ==============================================================================
+# Pattern Syntax
+# ==============================================================================
+
+# *.log        - All .log files in current directory only
+# **/*.log     - All .log files recursively (any depth)
+# logs/        - Entire logs directory
+# !important   - Include file/directory (negation)
+
+# ==============================================================================
+# Required Files for Build
+# ==============================================================================
+
+# These files MUST be present (not excluded):
+# - requirements.txt (Python dependencies)
+# - app/ (application source code)
+# - pyproject.toml (if using Poetry - configure separately)
+
+# Typical backend/ directory structure sent to Docker:
+# backend/
+# ├── requirements.txt (~1KB)
+# ├── app/
+# │   ├── __init__.py
+# │   ├── main.py
+# │   ├── database.py
+# │   ├── models/
+# │   ├── routers/
+# │   └── utils/
+# └── [.dockerignore excludes everything else]
+
+# ==============================================================================
+# Testing .dockerignore
+# ==============================================================================
+
+# Build with verbose output to see context size:
+#   docker build --progress=plain -t backend:test ./backend 2>&1 | head -n 20
+
+# Check what files are sent to Docker daemon:
+#   docker build --no-cache -t backend:test ./backend 2>&1 | grep -i "sending"
+
+# Expected output with proper .dockerignore:
+#   Sending build context to Docker daemon: 5.2MB
+
+# List files in build context (advanced):
+#   tar -c . --exclude-vcs --exclude='Dockerfile*' | tar -t | wc -l
+#   # Should be < 100 files for typical FastAPI project
+
+# ==============================================================================
+# Python-Specific Exclusions
+# ==============================================================================
+
+# Why exclude __pycache__:
+# - Generated automatically by Python
+# - Version-specific (Python 3.13 vs 3.12)
+# - Will be recreated in container
+# - Can cause issues if copied from different Python version
+
+# Why exclude venv:
+# - Local development environment
+# - May contain platform-specific binaries
+# - Different from /opt/venv created in Docker
+# - Reduces context by ~100-200MB
+
+# Why exclude .pytest_cache:
+# - Test execution cache
+# - Not needed for production
+# - Will be regenerated if tests run in container
+
+# ==============================================================================
+# FastAPI-Specific Exclusions
+# ==============================================================================
+
+# Why exclude alembic/ migrations:
+# - Database migrations run separately
+# - Not needed in application container
+# - Version-controlled separately
+# - Run via migration jobs, not application startup
+
+# Why exclude *.db, *.sqlite:
+# - Local development databases
+# - Production uses external PostgreSQL (Neon)
+# - Prevents accidental data inclusion in image
+
+# ==============================================================================
+# Security Considerations
+# ==============================================================================
+
+# Never include:
+# - .env files (secrets)
+# - *.key, *.pem (SSL certificates)
+# - credentials.json (service accounts)
+# - Any file with passwords or API keys
+
+# Best practices:
+# - Use runtime environment variables
+# - Use Docker secrets in production
+# - Use Kubernetes secrets for orchestration
+# - Rotate secrets regularly
+
+# ==============================================================================
+# Maintenance Notes
+# ==============================================================================
+
+# Review and update .dockerignore when:
+# - Adding new Python packages
+# - Changing project structure
+# - Adding new development tools
+# - Noticing slow build context transfers
+
+# Regular audit:
+#   docker build --progress=plain . 2>&1 | grep "Sending build context"
+#   # Should be < 10MB for typical FastAPI project
+
+# Compare with git-tracked files:
+#   git ls-files backend/ | wc -l
+#   # Build context should have similar or fewer files
+
+# ==============================================================================
+# Performance Impact
+# ==============================================================================
+
+# Excluding large directories significantly improves:
+# 1. Build context transfer speed (95%+ faster)
+# 2. Docker build time (no processing of excluded files)
+# 3. Cache invalidation (only source code changes matter)
+# 4. CI/CD pipeline speed (faster context upload)
+
+# Benchmark:
+# - Without .dockerignore: 15-30 seconds context transfer
+# - With .dockerignore: <1 second context transfer
+# - Time savings: 95%+ on every build
