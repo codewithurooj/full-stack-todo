@@ -17,6 +17,7 @@ A modern todo application built using spec-driven development with Claude Code a
 - **Frontend Application:** https://full-stack-todo-application-five.vercel.app
 - **Backend API:** https://full-stack-todo-98cf.onrender.com
 - **API Documentation:** https://full-stack-todo-98cf.onrender.com/docs
+- **Demo Video (Phase 4 - Kubernetes):** https://youtu.be/KqT4QNhNRcw
 - **GitHub Repository:** https://github.com/codewithurooj/full-stack-todo
 
 ## ✨ Features
@@ -282,8 +283,15 @@ This project follows spec-driven development. All changes must:
 - ✅ Public GitHub repository
 - ✅ Deployed frontend (Vercel)
 - ✅ Deployed backend (Render/Railway)
-- ✅ Demo video (< 90 seconds)
+- ✅ Demo video (< 90 seconds) - **[Watch on YouTube](https://youtu.be/KqT4QNhNRcw)**
 - ✅ All specifications documented
+
+### Phase 4 - Kubernetes Deployment
+- ✅ Dockerfiles for both applications
+- ✅ Helm charts with proper configuration
+- ✅ Running deployment on Minikube (local Kubernetes)
+- ✅ Demo video showcasing Kubernetes deployment
+- ✅ Complete setup documentation
 
 ### Submission Form
 Submit at: https://forms.gle/KMKEKaFUD6ZX4UtY8
