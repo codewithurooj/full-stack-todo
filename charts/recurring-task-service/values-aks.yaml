@@ -1,0 +1,47 @@
+# Azure AKS-specific values for recurring-task-service
+# Deploy with: helm upgrade --install recurring-task-service ./charts/recurring-task-service -n todo-app -f charts/recurring-task-service/values-aks.yaml
+
+replicaCount: 1
+
+image:
+  # Replace <registry> with your Azure Container Registry name
+  repository: <registry>.azurecr.io/recurring-task-service
+  tag: latest
+  pullPolicy: Always
+
+# No imagePullSecrets needed when using managed identity with AKS + ACR
+imagePullSecrets: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+env:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"  # Or Azure Event Hubs Kafka endpoint
+  KAFKA_TOPIC: "task-events"
+  CONSUMER_GROUP_ID: "recurring-task-service"
+  LOG_LEVEL: "INFO"
+
+# Database secret
+database:
+  secretName: "todo-backend-secret"
+  secretKey: "DATABASE_URL"
+
+# Dapr configuration
+dapr:
+  enabled: true
+  appId: "recurring-task-service"
+  appPort: ""  # No HTTP port - consumer only
+  enableApiLogging: "true"
+  logLevel: "info"
+  config: "daprsystem"
+  components:
+    pubsub: "kafka-pubsub"
+    secretstore: "kubernetes-secrets"
+
+# Azure AKS uses AMD64 by default
+nodeSelector: {}

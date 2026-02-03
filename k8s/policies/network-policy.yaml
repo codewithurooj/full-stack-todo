@@ -1,0 +1,121 @@
+# Network Policy for todo-app namespace
+# Restricts traffic to only allow ingress controller to reach services
+# Allows internal service-to-service communication
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-services
+  namespace: todo-app
+  labels:
+    app.kubernetes.io/name: todo-app
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector: {}  # Applies to all pods in namespace
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from NGINX ingress controller namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000  # Frontend
+        - protocol: TCP
+          port: 8000  # Backend
+        - protocol: TCP
+          port: 8001  # Recurring task service
+        - protocol: TCP
+          port: 8002  # Notification service
+        - protocol: TCP
+          port: 8003  # Audit service
+
+    # Allow internal service-to-service communication within namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 8001
+        - protocol: TCP
+          port: 8002
+        - protocol: TCP
+          port: 8003
+        - protocol: TCP
+          port: 9092  # Kafka
+
+    # Allow traffic from Dapr system namespace (for sidecars)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: dapr-system
+      ports:
+        - protocol: TCP
+          port: 3500  # Dapr HTTP
+        - protocol: TCP
+          port: 50001  # Dapr gRPC
+
+    # Allow Prometheus scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8000  # Backend metrics
+        - protocol: TCP
+          port: 3000  # Frontend metrics
+
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow all traffic to Kubernetes API server
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443  # HTTPS for external APIs (OpenAI, Neon DB, etc.)
+        - protocol: TCP
+          port: 5432  # PostgreSQL (Neon)
+        - protocol: TCP
+          port: 6379  # Redis (if used)
+
+    # Allow internal namespace communication
+    - to:
+        - podSelector: {}
+
+    # Allow Kafka communication
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9092  # Kafka
+
+---
+# Deny all ingress by default (applied after allow policies)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: todo-app
+  labels:
+    app.kubernetes.io/name: todo-app
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress

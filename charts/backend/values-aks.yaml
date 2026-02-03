@@ -1,0 +1,108 @@
+# Azure AKS-specific values for todo-backend
+# Deploy with: helm upgrade --install todo-backend ./charts/backend -n todo-app -f charts/backend/values-aks.yaml
+
+replicaCount: 2
+
+image:
+  # Replace with your Azure Container Registry name
+  # Example: todoregistry.azurecr.io/todo-backend
+  repository: todoappcr2026.azurecr.io/todo-backend
+  pullPolicy: Always
+  tag: "latest"
+
+# When using AKS with attached ACR, no imagePullSecrets needed
+# If not using managed identity, uncomment below:
+# imagePullSecrets:
+#   - name: acr-secret
+imagePullSecrets: []
+
+# Dapr configuration
+dapr:
+  enabled: false
+  appId: "backend-service"
+  appPort: "8000"
+  enableApiLogging: "true"
+  logLevel: "info"
+  config: "daprsystem"
+  components:
+    pubsub: "kafka-pubsub"
+    statestore: "statestore"
+    secretstore: "kubernetes-secrets"
+
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: todo.yourdomain.com
+      paths:
+        - path: /api
+          pathType: Prefix
+        - path: /health
+          pathType: Prefix
+        - path: /docs
+          pathType: Prefix
+        - path: /openapi.json
+          pathType: Prefix
+  tls:
+    - secretName: todo-backend-tls
+      hosts:
+        - todo.yourdomain.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - todo-backend
+          topologyKey: kubernetes.io/hostname
+
+# Environment variables
+env:
+  - name: ENVIRONMENT
+    value: "production"
+
+# Environment variables from ConfigMap/Secrets
+envFrom:
+  - secretRef:
+      name: todo-backend-secrets
+
+# Configuration values (non-sensitive)
+config:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "info"
+
+# Secrets are created separately via kubectl or Azure Key Vault
+secrets: {}

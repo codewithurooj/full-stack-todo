@@ -1,0 +1,39 @@
+{{- if .Values.resiliency.enabled }}
+apiVersion: dapr.io/v1alpha1
+kind: Resiliency
+metadata:
+  name: {{ .Values.resiliency.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  policies:
+    retries:
+      default:
+        policy: constant
+        maxRetries: {{ .Values.resiliency.retry.maxRetries }}
+        duration: {{ .Values.resiliency.retry.initialBackoff }}
+    circuitBreakers:
+      default:
+        maxRequests: {{ .Values.resiliency.circuitBreaker.maxRequests }}
+        interval: {{ .Values.resiliency.circuitBreaker.interval }}
+        timeout: {{ .Values.resiliency.circuitBreaker.timeout }}
+        trip: consecutiveFailures > 5
+  targets:
+    apps:
+      backend-service:
+        retry: default
+        circuitBreaker: default
+      notification-service:
+        retry: default
+        circuitBreaker: default
+      recurring-task-service:
+        retry: default
+        circuitBreaker: default
+      audit-service:
+        retry: default
+        circuitBreaker: default
+    components:
+      kafka-pubsub:
+        outbound:
+          retry: default
+          circuitBreaker: default
+{{- end }}

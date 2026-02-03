@@ -1,0 +1,48 @@
+replicaCount: 1
+
+image:
+  repository: notification-service
+  tag: latest
+  pullPolicy: IfNotPresent
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+env:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  KAFKA_TOPIC: "reminders"
+  CONSUMER_GROUP_ID: "notification-service"
+  LOG_LEVEL: "INFO"
+  BATCH_WINDOW_SECONDS: "120"
+  RATE_LIMIT_PER_USER: "10"
+  RATE_LIMIT_WINDOW_SECONDS: "60"
+  VAPID_CLAIMS_EMAIL: "mailto:admin@example.com"
+
+# Database secret
+database:
+  secretName: "db-secret"
+  secretKey: "DATABASE_URL"
+
+# VAPID secrets for Web Push
+vapid:
+  secretName: "vapid-secret"
+  publicKeyField: "VAPID_PUBLIC_KEY"
+  privateKeyField: "VAPID_PRIVATE_KEY"
+
+# Dapr configuration (Feature 012)
+dapr:
+  enabled: false
+  appId: "notification-service"
+  appPort: "8001"
+  enableApiLogging: "true"
+  logLevel: "info"
+  config: "daprsystem"
+  # Components for this service
+  components:
+    pubsub: "kafka-pubsub"
+    secretstore: "kubernetes-secrets"

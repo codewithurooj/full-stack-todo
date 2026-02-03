@@ -1,0 +1,66 @@
+# Dapr Multi-App Run Configuration
+# Feature: 012-dapr-integration
+# Purpose: Local development with all services running via Dapr
+#
+# Usage:
+#   dapr run -f dapr.yaml
+#
+# Stop all services:
+#   dapr stop -f dapr.yaml
+
+version: 1
+common:
+  resourcesPath: ./dapr-components
+
+apps:
+  # Backend API Service
+  - appID: backend-service
+    appDirPath: ./backend
+    appPort: 8000
+    daprHTTPPort: 3500
+    daprGRPCPort: 50001
+    logLevel: info
+    config: dapr-config
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    env:
+      DAPR_HTTP_PORT: "3500"
+      DAPR_GRPC_PORT: "50001"
+
+  # Notification Service
+  - appID: notification-service
+    appDirPath: ./services/notification-service
+    appPort: 8001
+    daprHTTPPort: 3501
+    daprGRPCPort: 50002
+    logLevel: info
+    config: dapr-config
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    env:
+      DAPR_HTTP_PORT: "3501"
+      DAPR_GRPC_PORT: "50002"
+
+  # Recurring Task Service
+  - appID: recurring-task-service
+    appDirPath: ./services/recurring-task-service
+    appPort: 8002
+    daprHTTPPort: 3502
+    daprGRPCPort: 50003
+    logLevel: info
+    config: dapr-config
+    command: ["python", "-m", "src.main"]
+    env:
+      DAPR_HTTP_PORT: "3502"
+      DAPR_GRPC_PORT: "50003"
+
+  # Audit Service
+  - appID: audit-service
+    appDirPath: ./services/audit-service
+    appPort: 8003
+    daprHTTPPort: 3503
+    daprGRPCPort: 50004
+    logLevel: info
+    config: dapr-config
+    command: ["python", "-m", "src.main"]
+    env:
+      DAPR_HTTP_PORT: "3503"
+      DAPR_GRPC_PORT: "50004"

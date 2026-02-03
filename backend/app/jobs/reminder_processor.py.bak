@@ -1,0 +1,291 @@
+"""Reminder processor job - runs periodically to send due reminders"""
+from datetime import datetime
+from sqlmodel import Session, select
+from typing import Dict, Optional
+import logging
+
+from app.database import engine
+from app.models.reminder import Reminder
+from app.models.task import Task
+from app.services.reminder_service import get_pending_reminders, mark_reminder_delivered
+from app.services.notification_service import (
+    process_user_reminders,
+    send_notification,
+    queue_offline_notification
+)
+from app.utils.notification import group_by_user
+
+logger = logging.getLogger(__name__)
+
+
+def process_due_reminders(session: Optional[Session] = None):
+    """
+    Process all reminders that are due now.
+
+    This function:
+    1. Queries database for pending reminders (remind_at <= now, delivered = false)
+    2. Groups reminders by user
+    3. For each user: deduplicates, batches, and sends notifications
+    4. Marks reminders as delivered or failed
+    5. Logs all activity
+
+    This job runs every 30 seconds via APScheduler.
+
+    Returns:
+        Dictionary with processing results
+    """
+    start_time = datetime.utcnow()
+    logger.info(f"process_due_reminders: starting job at {start_time.isoformat()}")
+
+    # Use provided session or create new one
+    should_close_session = session is None
+    if session is None:
+        session = Session(engine)
+
+    try:
+        # Step 1: Get pending reminders
+        pending_reminders = get_pending_reminders(
+        session=session,
+            current_time=datetime.utcnow(),
+            lookahead_minutes=5  # Look 5 minutes ahead
+        )
+
+        if not pending_reminders:
+                logger.info("process_due_reminders: no pending reminders")
+                return {
+                    "status": "success",
+                    "reminders_processed": 0,
+                    "notifications_sent": 0,
+                    "duration_seconds": (datetime.utcnow() - start_time).total_seconds()
+                }
+
+            logger.info(f"process_due_reminders: found {len(pending_reminders)} pending reminders")
+
+            # Step 2: Fetch tasks for all reminders
+            task_ids = list(set(r.task_id for r in pending_reminders))
+            statement = select(Task).where(Task.id.in_(task_ids))
+            tasks = session.exec(statement).all()
+            tasks_dict = {task.id: task for task in tasks}
+
+            logger.info(f"process_due_reminders: fetched {len(tasks_dict)} tasks")
+
+            # Step 3: Group reminders by user
+            user_reminders = group_by_user(pending_reminders)
+            logger.info(f"process_due_reminders: grouped into {len(user_reminders)} users")
+
+            # Step 4: Process each user's reminders
+            total_notifications_sent = 0
+            total_reminders_processed = 0
+            failed_reminders = []
+
+            for user_id, reminders in user_reminders.items():
+                try:
+                    # Process with batching and deduplication
+                    result = process_user_reminders(
+                        reminders=reminders,
+                        tasks=tasks_dict,
+                        user_id=user_id,
+                        enable_batching=True,
+                        enable_deduplication=True
+                    )
+
+                    total_notifications_sent += result.get("notifications_sent", 0)
+                    total_reminders_processed += result.get("reminders_processed", 0)
+
+                    # Mark reminders as delivered
+                    for reminder in reminders:
+                        task = tasks_dict.get(reminder.task_id)
+                        if task:
+                            try:
+                                # Send individual notification for tracking
+                                # (In production, use the batched notification ID)
+                                mark_reminder_delivered(
+                                    reminder_id=reminder.id,
+                                    session=session,
+                                    notification_id=f"notif-{reminder.id}",
+                                    success=True
+                                )
+                                logger.debug(
+                                    f"process_due_reminders: marked delivered. "
+                                    f"reminder_id={reminder.id}"
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"process_due_reminders: failed to mark delivered. "
+                                    f"reminder_id={reminder.id}, error={str(e)}"
+                                )
+                                failed_reminders.append(reminder.id)
+                        else:
+                            logger.warning(
+                                f"process_due_reminders: task not found. "
+                                f"reminder_id={reminder.id}, task_id={reminder.task_id}"
+                            )
+
+                except Exception as e:
+                    logger.error(
+                        f"process_due_reminders: failed to process user reminders. "
+                        f"user={user_id}, error={str(e)}"
+                    )
+                    # Mark all this user's reminders as failed
+                    for reminder in reminders:
+                        try:
+                            mark_reminder_delivered(
+                                reminder_id=reminder.id,
+                                session=session,
+                                success=False
+                            )
+                            failed_reminders.append(reminder.id)
+                        except Exception as mark_error:
+                            logger.error(
+                                f"process_due_reminders: failed to mark as failed. "
+                                f"reminder_id={reminder.id}, error={str(mark_error)}"
+                            )
+
+            # Step 5: Handle failed reminders (retry logic)
+            if failed_reminders:
+                logger.warning(
+                    f"process_due_reminders: {len(failed_reminders)} reminders failed. "
+                    f"They will be retried in the next job run."
+                )
+
+            # Calculate duration
+            duration = (datetime.utcnow() - start_time).total_seconds()
+
+            logger.info(
+                f"process_due_reminders: completed. "
+                f"reminders_processed={total_reminders_processed}, "
+                f"notifications_sent={total_notifications_sent}, "
+                f"failed={len(failed_reminders)}, "
+                f"duration={duration:.2f}s"
+            )
+
+            return {
+                "status": "success",
+                "reminders_processed": total_reminders_processed,
+                "notifications_sent": total_notifications_sent,
+                "failed": len(failed_reminders),
+                "duration_seconds": duration
+            }
+
+    except Exception as e:
+        logger.error(f"process_due_reminders: critical error. error={str(e)}", exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e),
+            "duration_seconds": (datetime.utcnow() - start_time).total_seconds()
+        }
+
+
+def retry_failed_reminders():
+    """
+    Retry failed reminder deliveries.
+
+    This function:
+    1. Queries database for failed reminders
+    2. Attempts to send notifications again
+    3. Marks as delivered or failed again
+
+    This job can run every 5 minutes via APScheduler.
+
+    Returns:
+        Dictionary with retry results
+    """
+    start_time = datetime.utcnow()
+    logger.info(f"retry_failed_reminders: starting job at {start_time.isoformat()}")
+
+    try:
+        with Session(engine) as session:
+            # Get failed reminders
+            statement = select(Reminder).where(
+                Reminder.delivery_status == "failed",
+                Reminder.delivered == False
+            ).order_by(Reminder.remind_at.asc())
+
+            failed_reminders = session.exec(statement).all()
+
+            if not failed_reminders:
+                logger.info("retry_failed_reminders: no failed reminders to retry")
+                return {
+                    "status": "success",
+                    "retried": 0,
+                    "succeeded": 0,
+                    "failed": 0
+                }
+
+            logger.info(f"retry_failed_reminders: found {len(failed_reminders)} failed reminders")
+
+            # Fetch tasks
+            task_ids = list(set(r.task_id for r in failed_reminders))
+            statement = select(Task).where(Task.id.in_(task_ids))
+            tasks = session.exec(statement).all()
+            tasks_dict = {task.id: task for task in tasks}
+
+            # Retry each reminder
+            succeeded = 0
+            failed = 0
+
+            for reminder in failed_reminders:
+                task = tasks_dict.get(reminder.task_id)
+                if not task:
+                    logger.warning(
+                        f"retry_failed_reminders: task not found. "
+                        f"reminder_id={reminder.id}, task_id={reminder.task_id}"
+                    )
+                    failed += 1
+                    continue
+
+                try:
+                    # Attempt to send notification
+                    result = send_notification(reminder, task, reminder.user_id)
+
+                    if result.get("status") == "sent":
+                        # Mark as delivered
+                        mark_reminder_delivered(
+                            reminder_id=reminder.id,
+                            session=session,
+                            notification_id=result.get("notification_id"),
+                            success=True
+                        )
+                        succeeded += 1
+                        logger.info(
+                            f"retry_failed_reminders: retry succeeded. "
+                            f"reminder_id={reminder.id}"
+                        )
+                    else:
+                        # Still failed
+                        failed += 1
+                        logger.warning(
+                            f"retry_failed_reminders: retry failed again. "
+                            f"reminder_id={reminder.id}"
+                        )
+
+                except Exception as e:
+                    logger.error(
+                        f"retry_failed_reminders: retry error. "
+                        f"reminder_id={reminder.id}, error={str(e)}"
+                    )
+                    failed += 1
+
+            duration = (datetime.utcnow() - start_time).total_seconds()
+
+            logger.info(
+                f"retry_failed_reminders: completed. "
+                f"retried={len(failed_reminders)}, succeeded={succeeded}, "
+                f"failed={failed}, duration={duration:.2f}s"
+            )
+
+            return {
+                "status": "success",
+                "retried": len(failed_reminders),
+                "succeeded": succeeded,
+                "failed": failed,
+                "duration_seconds": duration
+            }
+
+    except Exception as e:
+        logger.error(f"retry_failed_reminders: critical error. error={str(e)}", exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e),
+            "duration_seconds": (datetime.utcnow() - start_time).total_seconds()
+        }

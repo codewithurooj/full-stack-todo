@@ -1,0 +1,95 @@
+# Dapr Resiliency Configuration
+# Feature: 012-dapr-integration
+# Purpose: Retry policies, circuit breakers, and timeouts
+
+apiVersion: dapr.io/v1alpha1
+kind: Resiliency
+metadata:
+  name: todo-resiliency
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: todo-app
+    feature: 012-dapr-integration
+spec:
+  policies:
+    # Retry Policies
+    retries:
+      # Pub/Sub retry for event publishing
+      pubsubRetry:
+        policy: constant
+        duration: 5s
+        maxRetries: 3
+
+      # Service invocation retry
+      serviceRetry:
+        policy: exponential
+        maxInterval: 10s
+        maxRetries: 5
+        duration: 1s
+
+      # State store retry
+      stateRetry:
+        policy: constant
+        duration: 1s
+        maxRetries: 3
+
+    # Timeout Policies
+    timeouts:
+      # General operation timeout
+      generalTimeout: 30s
+
+      # Pub/Sub operation timeout
+      pubsubTimeout: 10s
+
+      # State operation timeout
+      stateTimeout: 5s
+
+    # Circuit Breaker Policies
+    circuitBreakers:
+      # Service invocation circuit breaker
+      serviceBreaker:
+        maxRequests: 10
+        timeout: 30s
+        trip: consecutiveFailures > 5
+
+      # Pub/Sub circuit breaker
+      pubsubBreaker:
+        maxRequests: 50
+        timeout: 60s
+        trip: consecutiveFailures > 10
+
+  targets:
+    # Component targets
+    components:
+      kafka-pubsub:
+        outbound:
+          retry: pubsubRetry
+          timeout: pubsubTimeout
+          circuitBreaker: pubsubBreaker
+
+      statestore:
+        outbound:
+          retry: stateRetry
+          timeout: stateTimeout
+
+    # App targets (service invocation)
+    apps:
+      backend-service:
+        retry: serviceRetry
+        timeout: generalTimeout
+        circuitBreaker: serviceBreaker
+
+      notification-service:
+        retry: serviceRetry
+        timeout: generalTimeout
+        circuitBreaker: serviceBreaker
+
+      audit-service:
+        retry: serviceRetry
+        timeout: generalTimeout
+        circuitBreaker: serviceBreaker
+
+      recurring-task-service:
+        retry: serviceRetry
+        timeout: generalTimeout
+        circuitBreaker: serviceBreaker

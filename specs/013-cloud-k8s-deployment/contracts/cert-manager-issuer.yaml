@@ -1,0 +1,184 @@
+# cert-manager ClusterIssuer Contracts
+# Feature: 013-cloud-k8s-deployment
+# Purpose: TLS certificate automation with Let's Encrypt
+# Status: Contract/Template - To be implemented in k8s/cert-manager/
+
+---
+# ==============================================
+# Staging ClusterIssuer (for testing)
+# ==============================================
+# Use this first to verify cert-manager is working
+# Staging certificates are NOT trusted by browsers but have higher rate limits
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/component: issuer
+    app.kubernetes.io/part-of: todo-app
+spec:
+  acme:
+    # Let's Encrypt ACME staging endpoint
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+
+    # Email for certificate expiry notifications
+    # REQUIRED: Replace with your email
+    email: admin@yourdomain.com
+
+    # Secret to store ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-staging-key
+
+    # HTTP-01 challenge solver using ingress
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+            # Optional: Specify ingress name template
+            # ingressTemplate:
+            #   metadata:
+            #     annotations:
+            #       kubernetes.io/ingress.class: nginx
+
+---
+# ==============================================
+# Production ClusterIssuer
+# ==============================================
+# Use this for production certificates
+# Production certificates ARE trusted by browsers
+# Rate limits: 50 certificates per domain per week
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  labels:
+    app.kubernetes.io/name: cert-manager
+    app.kubernetes.io/component: issuer
+    app.kubernetes.io/part-of: todo-app
+spec:
+  acme:
+    # Let's Encrypt ACME production endpoint
+    server: https://acme-v02.api.letsencrypt.org/directory
+
+    # Email for certificate expiry notifications
+    # REQUIRED: Replace with your email
+    email: admin@yourdomain.com
+
+    # Secret to store ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+
+    # HTTP-01 challenge solver using ingress
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+
+---
+# ==============================================
+# Certificate Resource Example
+# ==============================================
+# This is created automatically by cert-manager when using ingress annotations
+# But can also be created manually for more control
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: todo-app-tls
+  namespace: todo-app
+spec:
+  # Name of the secret to store the certificate
+  secretName: todo-app-tls-secret
+
+  # How long the certificate is valid (90 days for Let's Encrypt)
+  duration: 2160h  # 90 days
+
+  # When to start renewing (30 days before expiry)
+  renewBefore: 720h  # 30 days
+
+  # Reference to the ClusterIssuer
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+  # Domain names for the certificate
+  # REQUIRED: Replace with your domain
+  dnsNames:
+    - todo.yourdomain.com
+    - api.todo.yourdomain.com  # Optional: If using separate API subdomain
+
+  # Private key configuration
+  privateKey:
+    algorithm: RSA
+    encoding: PKCS1
+    size: 2048
+
+  # Optional: Use specific template for CSR
+  # usages:
+  #   - server auth
+  #   - client auth
+
+---
+# ==============================================
+# Installation Commands Reference
+# ==============================================
+# This section documents the cert-manager installation process
+
+# 1. Install cert-manager CRDs and controller
+# kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+
+# 2. Verify installation
+# kubectl get pods -n cert-manager
+# Expected output:
+#   cert-manager-xxxxx                    1/1     Running
+#   cert-manager-cainjector-xxxxx         1/1     Running
+#   cert-manager-webhook-xxxxx            1/1     Running
+
+# 3. Apply ClusterIssuers
+# kubectl apply -f k8s/cert-manager/cluster-issuer-letsencrypt-staging.yaml
+# kubectl apply -f k8s/cert-manager/cluster-issuer-letsencrypt-prod.yaml
+
+# 4. Verify issuers
+# kubectl get clusterissuers
+# Expected output:
+#   letsencrypt-staging   True    xxxs
+#   letsencrypt-prod      True    xxxs
+
+# 5. Test with staging first
+# - Create ingress with annotation: cert-manager.io/cluster-issuer: "letsencrypt-staging"
+# - Check certificate status: kubectl get certificates -n todo-app
+# - Check certificate request: kubectl get certificaterequests -n todo-app
+# - View certificate details: kubectl describe certificate todo-app-tls -n todo-app
+
+# 6. Common troubleshooting
+# - Check cert-manager logs: kubectl logs -n cert-manager -l app=cert-manager
+# - Check challenge status: kubectl get challenges -n todo-app
+# - Check orders: kubectl get orders -n todo-app
+
+---
+# ==============================================
+# Ingress Annotation Reference
+# ==============================================
+# Add these annotations to your Ingress resource to enable automatic certificate management
+
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   annotations:
+#     # Use staging issuer for testing
+#     cert-manager.io/cluster-issuer: "letsencrypt-staging"
+#
+#     # OR use production issuer for real certificates
+#     # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+#
+#     # Optional: Force HTTPS redirect
+#     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+#
+#     # Optional: HSTS header (recommended for production)
+#     nginx.ingress.kubernetes.io/hsts: "true"
+#     nginx.ingress.kubernetes.io/hsts-max-age: "31536000"
+#     nginx.ingress.kubernetes.io/hsts-include-subdomains: "true"

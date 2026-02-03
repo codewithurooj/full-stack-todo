@@ -1,0 +1,13 @@
+apiVersion: v2
+name: dapr-components
+description: Dapr components for the Todo application (Feature 012-dapr-integration)
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - dapr
+  - pubsub
+  - statestore
+  - secrets
+maintainers:
+  - name: Todo Team

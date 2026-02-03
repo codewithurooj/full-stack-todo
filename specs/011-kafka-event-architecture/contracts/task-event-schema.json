@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://todo-app.com/schemas/task-event.v1.json",
+  "title": "Task Event Schema",
+  "description": "Event schema for all task lifecycle operations published to task-events topic",
+  "type": "object",
+  "required": ["event_id", "event_type", "schema_version", "timestamp", "user_id", "task_id", "task_data"],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this event (idempotency key)"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": ["task.created", "task.updated", "task.deleted", "task.completed"],
+      "description": "Type of task operation"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Event schema version (semver format)"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Event generation time in UTC (ISO 8601 format)"
+    },
+    "user_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "User who owns the task"
+    },
+    "task_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Task identifier"
+    },
+    "task_data": {
+      "type": "object",
+      "description": "Full task object at time of event",
+      "required": ["id", "user_id", "title", "completed"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "user_id": {"type": "integer", "minimum": 1},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "description": {"type": "string", "maxLength": 1000},
+        "completed": {"type": "boolean"},
+        "priority": {"type": "string", "enum": ["low", "medium", "high"]},
+        "tags": {"type": "array", "items": {"type": "string"}},
+        "recurring": {"type": "string", "enum": ["none", "daily", "weekly", "monthly"]},
+        "recurring_interval": {"type": "integer", "minimum": 1},
+        "parent_task_id": {"type": ["integer", "null"]},
+        "due_date": {"type": ["string", "null"], "format": "date-time"},
+        "remind_at": {"type": ["string", "null"], "format": "date-time"},
+        "reminded": {"type": "boolean"},
+        "created_at": {"type": "string", "format": "date-time"},
+        "updated_at": {"type": "string", "format": "date-time"}
+      }
+    }
+  }
+}

@@ -1,0 +1,77 @@
+# Dapr Pub/Sub Subscriptions
+# Feature: 012-dapr-integration
+# Purpose: Declarative event routing to microservices
+
+---
+# Subscription 1: Task events for Audit Service
+apiVersion: dapr.io/v2alpha1
+kind: Subscription
+metadata:
+  name: audit-task-events
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: todo-app
+    feature: 012-dapr-integration
+spec:
+  pubsubname: kafka-pubsub
+  topic: task-events
+  routes:
+    default: /events/tasks
+  scopes:
+    - audit-service
+
+---
+# Subscription 2: Task events for Recurring Task Service
+apiVersion: dapr.io/v2alpha1
+kind: Subscription
+metadata:
+  name: recurring-task-events
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: todo-app
+    feature: 012-dapr-integration
+spec:
+  pubsubname: kafka-pubsub
+  topic: task-events
+  routes:
+    # Route only completed events for recurring logic
+    rules:
+      - match: event.type == "task.completed"
+        path: /events/task-completed
+    default: /events/tasks  # Fallback for other events
+  scopes:
+    - recurring-task-service
+
+---
+# Subscription 3: Reminders for Notification Service
+apiVersion: dapr.io/v2alpha1
+kind: Subscription
+metadata:
+  name: notification-reminders
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: todo-app
+    feature: 012-dapr-integration
+spec:
+  pubsubname: kafka-pubsub
+  topic: reminders
+  routes:
+    default: /events/reminders
+  scopes:
+    - notification-service
+
+---
+# Subscription 4: Task updates for WebSocket Service (future)
+# Uncomment when WebSocket service is implemented
+# apiVersion: dapr.io/v2alpha1
+# kind: Subscription
+# metadata:
+#   name: websocket-task-updates
+#   namespace: default
+# spec:
+#   pubsubname: kafka-pubsub
+#   topic: task-updates
+#   routes:
+#     default: /events/updates
+#   scopes:
+#     - websocket-service

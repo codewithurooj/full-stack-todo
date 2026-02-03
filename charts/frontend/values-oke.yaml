@@ -1,0 +1,92 @@
+# Oracle Cloud OKE-specific values for todo-frontend
+# Deploy with: helm upgrade --install todo-frontend ./charts/frontend -n todo-app -f charts/frontend/values-oke.yaml
+
+replicaCount: 2
+
+image:
+  # Replace <region> and <tenancy> with your Oracle Cloud values
+  # Example: us-ashburn-1.ocir.io/mytenancy/todo-frontend
+  repository: <region>.ocir.io/<tenancy>/todo-frontend
+  pullPolicy: Always
+  tag: "latest"
+
+# Oracle OCIR requires imagePullSecrets
+imagePullSecrets:
+  - name: ocir-secret
+
+service:
+  type: ClusterIP
+  port: 3000
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: todo.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: todo-frontend-tls
+      hosts:
+        - todo.yourdomain.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Oracle OKE ARM instances (A1.Flex) node selector
+nodeSelector:
+  kubernetes.io/arch: arm64  # Remove if using AMD64 instances
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - todo-frontend
+          topologyKey: kubernetes.io/hostname
+
+# Environment variables
+env:
+  - name: NEXT_PUBLIC_API_URL
+    value: "https://todo.yourdomain.com"
+  - name: NODE_ENV
+    value: "production"
+
+# Environment variables from ConfigMap/Secrets
+envFrom:
+  - configMapRef:
+      name: todo-frontend-config
+  - secretRef:
+      name: todo-frontend-secret
+
+# Configuration values (non-sensitive)
+config:
+  NEXT_PUBLIC_API_URL: "https://todo.yourdomain.com"
+  NODE_ENV: "production"
+
+# Secrets are created separately via kubectl
+secrets: {}

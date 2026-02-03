@@ -1,0 +1,45 @@
+# Dapr State Store Component: PostgreSQL
+# Feature: 012-dapr-integration
+# Purpose: Conversation state persistence
+
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: statestore
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: todo-app
+    feature: 012-dapr-integration
+spec:
+  type: state.postgresql
+  version: v1
+  metadata:
+    # Database connection
+    - name: connectionString
+      secretKeyRef:
+        name: postgres-credentials
+        key: connectionString
+
+    # Table configuration
+    - name: tableName
+      value: "dapr_state"
+
+    # Key prefix strategy
+    - name: keyPrefix
+      value: "name"  # Use component name as prefix
+
+    # Concurrency mode
+    - name: actorStateStore
+      value: "false"  # Not using Dapr actors
+
+    # Cleanup configuration
+    - name: cleanupIntervalInSeconds
+      value: "3600"  # Clean up expired state every hour
+
+    # Transaction timeout
+    - name: timeoutInSeconds
+      value: "30"
+
+# Scopes: Only backend service manages conversation state
+scopes:
+  - backend-service

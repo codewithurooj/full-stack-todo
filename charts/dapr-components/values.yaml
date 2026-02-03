@@ -1,0 +1,60 @@
+# Dapr Components Configuration
+# Feature: 012-dapr-integration
+
+# Kafka pub/sub component
+pubsub:
+  enabled: true
+  name: kafka-pubsub
+  kafkaBrokers: "kafka:9092"
+  sasl:
+    enabled: false
+    username: ""
+    password: ""
+    mechanism: "SCRAM-SHA-512"
+  tls:
+    enabled: false
+  maxMessageBytes: 1048576
+
+# State store component (PostgreSQL)
+statestore:
+  enabled: true
+  name: statestore
+  host: "postgres:5432"
+  database: "todo_state"
+  # Connection string will be pulled from secret
+  secretRef: "postgres-credentials"
+
+# Kubernetes secrets component
+secretstore:
+  enabled: true
+  name: kubernetes-secrets
+
+# Scheduler component (for Jobs API)
+scheduler:
+  enabled: true
+  name: scheduler
+
+# Dapr configuration
+config:
+  name: daprsystem
+  tracing:
+    enabled: true
+    samplingRate: "1"
+    exporterType: "zipkin"
+    zipkinEndpoint: "http://zipkin:9411/api/v2/spans"
+  logging:
+    enabled: true
+    level: "info"
+
+# Resiliency policies
+resiliency:
+  enabled: true
+  name: default-resiliency
+  circuitBreaker:
+    maxRequests: 10
+    interval: "30s"
+    timeout: "60s"
+  retry:
+    maxRetries: 3
+    initialBackoff: "1s"
+    maxBackoff: "30s"

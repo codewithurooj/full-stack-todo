@@ -19,7 +19,7 @@ export interface TaskListProps {
   onTaskDelete?: (taskId: number) => void
   loading?: boolean
   emptyMessage?: string
-  filter?: "all" | "active" | "completed"
+  filter?: "all" | "pending" | "completed"
 }
 
 export function TaskList({

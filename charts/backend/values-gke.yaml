@@ -1,0 +1,111 @@
+# Google Cloud GKE-specific values for todo-backend
+# Deploy with: helm upgrade --install todo-backend ./charts/backend -n todo-app -f charts/backend/values-gke.yaml
+
+replicaCount: 2
+
+image:
+  # Replace with your GCP project and region
+  # Example: us-central1-docker.pkg.dev/my-project/todo-repo/todo-backend
+  repository: <region>-docker.pkg.dev/<project-id>/todo-repo/todo-backend
+  pullPolicy: Always
+  tag: "latest"
+
+# GKE nodes have implicit access to Artifact Registry in same project
+# If using cross-project, configure Workload Identity or add imagePullSecrets
+imagePullSecrets: []
+
+# Dapr configuration
+dapr:
+  enabled: true
+  appId: "backend-service"
+  appPort: "8000"
+  enableApiLogging: "true"
+  logLevel: "info"
+  config: "daprsystem"
+  components:
+    pubsub: "kafka-pubsub"
+    statestore: "statestore"
+    secretstore: "kubernetes-secrets"
+
+service:
+  type: ClusterIP
+  port: 8000
+  targetPort: 8000
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+  hosts:
+    - host: todo.yourdomain.com
+      paths:
+        - path: /api
+          pathType: Prefix
+        - path: /health
+          pathType: Prefix
+        - path: /docs
+          pathType: Prefix
+        - path: /openapi.json
+          pathType: Prefix
+  tls:
+    - secretName: todo-backend-tls
+      hosts:
+        - todo.yourdomain.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# GKE node selector for specific node pool (optional)
+# nodeSelector:
+#   cloud.google.com/gke-nodepool: default-pool
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - todo-backend
+          topologyKey: kubernetes.io/hostname
+
+# Environment variables
+env:
+  - name: ENVIRONMENT
+    value: "production"
+
+# Environment variables from ConfigMap/Secrets
+envFrom:
+  - configMapRef:
+      name: todo-backend-config
+  - secretRef:
+      name: todo-backend-secret
+
+# Configuration values (non-sensitive)
+config:
+  ENVIRONMENT: "production"
+  LOG_LEVEL: "info"
+
+# Secrets are created separately via kubectl or GCP Secret Manager
+secrets: {}
