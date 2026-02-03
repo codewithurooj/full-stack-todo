@@ -69,3 +69,15 @@ tmp/
 *.pem
 kubeconfig*
 .kube/
+
+# Claude temp files
+tmpclaude-*
+backend/tmpclaude-*
+nul
+ERROR
+[builder
+[deps
+]
+
+# Hackathon PDF
+*.pdf

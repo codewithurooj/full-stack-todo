@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "notification-service.fullname" . }}-config
+  labels:
+    {{- include "notification-service.labels" . | nindent 4 }}
+data:
+  KAFKA_BOOTSTRAP_SERVERS: {{ .Values.env.KAFKA_BOOTSTRAP_SERVERS | quote }}
+  KAFKA_TOPIC: {{ .Values.env.KAFKA_TOPIC | quote }}
+  CONSUMER_GROUP_ID: {{ .Values.env.CONSUMER_GROUP_ID | quote }}
+  LOG_LEVEL: {{ .Values.env.LOG_LEVEL | quote }}
+  BATCH_WINDOW_SECONDS: {{ .Values.env.BATCH_WINDOW_SECONDS | quote }}
+  RATE_LIMIT_PER_USER: {{ .Values.env.RATE_LIMIT_PER_USER | quote }}
+  RATE_LIMIT_WINDOW_SECONDS: {{ .Values.env.RATE_LIMIT_WINDOW_SECONDS | quote }}
+  VAPID_CLAIMS_EMAIL: {{ .Values.env.VAPID_CLAIMS_EMAIL | quote }}

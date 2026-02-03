@@ -1,0 +1,435 @@
+# GitHub Actions CI/CD Workflow Contract
+# Feature: 013-cloud-k8s-deployment
+# Purpose: Automated build, test, and deploy to cloud Kubernetes
+# Status: Contract/Template - To be implemented in .github/workflows/deploy.yml
+
+name: Deploy to Cloud Kubernetes
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'services/**'
+      - 'charts/**'
+      - '.github/workflows/deploy.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+      cloud_provider:
+        description: 'Cloud provider to deploy to'
+        required: true
+        default: 'oke'
+        type: choice
+        options:
+          - aks   # Azure Kubernetes Service
+          - gke   # Google Kubernetes Engine
+          - oke   # Oracle Container Engine for Kubernetes
+
+env:
+  # Registry configuration - set based on cloud_provider
+  REGISTRY_AKS: todoregistry.azurecr.io
+  REGISTRY_GKE: gcr.io/${{ secrets.GCP_PROJECT_ID }}
+  REGISTRY_OKE: ${{ secrets.OCI_REGION }}.ocir.io/${{ secrets.OCI_TENANCY }}
+  REGISTRY_DOCKERHUB: docker.io/${{ secrets.DOCKERHUB_USERNAME }}
+
+  # Default images
+  BACKEND_IMAGE: todo-backend
+  FRONTEND_IMAGE: todo-frontend
+  NOTIFICATION_IMAGE: notification-service
+  RECURRING_IMAGE: recurring-task-service
+  AUDIT_IMAGE: audit-service
+
+jobs:
+  # ============================================
+  # JOB 1: Build and Test
+  # ============================================
+  build-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    outputs:
+      backend_changed: ${{ steps.changes.outputs.backend }}
+      frontend_changed: ${{ steps.changes.outputs.frontend }}
+      services_changed: ${{ steps.changes.outputs.services }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for change detection
+
+      - name: Detect changes
+        id: changes
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+            services:
+              - 'services/**'
+
+      # Backend Tests
+      - name: Set up Python
+        if: steps.changes.outputs.backend == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        if: steps.changes.outputs.backend == 'true'
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run backend tests
+        if: steps.changes.outputs.backend == 'true'
+        run: |
+          cd backend
+          pytest --tb=short --cov=app --cov-report=xml
+        env:
+          DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+
+      # Frontend Tests
+      - name: Set up Node.js
+        if: steps.changes.outputs.frontend == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        if: steps.changes.outputs.frontend == 'true'
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run frontend tests
+        if: steps.changes.outputs.frontend == 'true'
+        run: |
+          cd frontend
+          npm test -- --passWithNoTests --coverage
+
+      # Build verification (no push yet)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image (verify)
+        if: steps.changes.outputs.backend == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: ${{ env.BACKEND_IMAGE }}:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image (verify)
+        if: steps.changes.outputs.frontend == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: false
+          tags: ${{ env.FRONTEND_IMAGE }}:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================
+  # JOB 2: Build and Push Images
+  # ============================================
+  push-images:
+    name: Build and Push Images
+    runs-on: ubuntu-latest
+    needs: build-test
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          platforms: linux/amd64,linux/arm64
+
+      # Determine registry based on cloud provider
+      - name: Set registry
+        id: registry
+        run: |
+          PROVIDER="${{ github.event.inputs.cloud_provider || 'oke' }}"
+          case $PROVIDER in
+            aks)
+              echo "registry=${{ env.REGISTRY_AKS }}" >> $GITHUB_OUTPUT
+              ;;
+            gke)
+              echo "registry=${{ env.REGISTRY_GKE }}" >> $GITHUB_OUTPUT
+              ;;
+            oke)
+              echo "registry=${{ env.REGISTRY_OKE }}" >> $GITHUB_OUTPUT
+              ;;
+            *)
+              echo "registry=${{ env.REGISTRY_DOCKERHUB }}" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      # Login to container registry
+      - name: Login to Azure ACR
+        if: github.event.inputs.cloud_provider == 'aks'
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ env.REGISTRY_AKS }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Login to Google GCR
+        if: github.event.inputs.cloud_provider == 'gke'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker for GCR
+        if: github.event.inputs.cloud_provider == 'gke'
+        run: gcloud auth configure-docker
+
+      - name: Login to Oracle OCIR
+        if: github.event.inputs.cloud_provider == 'oke'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.OCI_REGION }}.ocir.io
+          username: ${{ secrets.OCI_TENANCY }}/${{ secrets.OCI_USERNAME }}
+          password: ${{ secrets.OCI_AUTH_TOKEN }}
+
+      - name: Login to Docker Hub
+        if: github.event.inputs.cloud_provider == '' || github.event.inputs.cloud_provider == 'dockerhub'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Generate image tags
+      - name: Generate tags
+        id: tags
+        run: |
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "sha_tag=sha-${SHA_SHORT}" >> $GITHUB_OUTPUT
+          echo "latest_tag=latest" >> $GITHUB_OUTPUT
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            echo "version_tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      # Build and push images
+      - name: Build and push backend
+        if: needs.build-test.outputs.backend_changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.registry.outputs.registry }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.sha_tag }}
+            ${{ steps.registry.outputs.registry }}/${{ env.BACKEND_IMAGE }}:${{ steps.tags.outputs.latest_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend
+        if: needs.build-test.outputs.frontend_changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.registry.outputs.registry }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.sha_tag }}
+            ${{ steps.registry.outputs.registry }}/${{ env.FRONTEND_IMAGE }}:${{ steps.tags.outputs.latest_tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+
+      - name: Build and push microservices
+        if: needs.build-test.outputs.services_changed == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          REGISTRY="${{ steps.registry.outputs.registry }}"
+          TAG="${{ steps.tags.outputs.sha_tag }}"
+
+          for svc in notification-service recurring-task-service audit-service; do
+            docker buildx build --platform linux/amd64,linux/arm64 \
+              -t ${REGISTRY}/${svc}:${TAG} \
+              -t ${REGISTRY}/${svc}:latest \
+              --push ./services/${svc}
+          done
+
+  # ============================================
+  # JOB 3: Deploy to Kubernetes
+  # ============================================
+  deploy:
+    name: Deploy to Kubernetes
+    runs-on: ubuntu-latest
+    needs: push-images
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    environment:
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: https://todo.${{ secrets.DOMAIN }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.13.0'
+
+      # Configure kubectl for cloud provider
+      - name: Configure kubectl for AKS
+        if: github.event.inputs.cloud_provider == 'aks'
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ secrets.AKS_RESOURCE_GROUP }}
+          cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Configure kubectl for GKE
+        if: github.event.inputs.cloud_provider == 'gke'
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER_NAME }}
+          location: ${{ secrets.GKE_REGION }}
+          credentials: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure kubectl for OKE
+        if: github.event.inputs.cloud_provider == 'oke' || github.event.inputs.cloud_provider == ''
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.OKE_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      # Create namespace if not exists
+      - name: Create namespace
+        run: |
+          kubectl create namespace todo-app --dry-run=client -o yaml | kubectl apply -f -
+
+      # Create/update secrets
+      - name: Create secrets
+        run: |
+          kubectl create secret generic todo-backend-secret \
+            --namespace todo-app \
+            --from-literal=DATABASE_URL='${{ secrets.DATABASE_URL }}' \
+            --from-literal=BETTER_AUTH_SECRET='${{ secrets.BETTER_AUTH_SECRET }}' \
+            --from-literal=OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic todo-frontend-secret \
+            --namespace todo-app \
+            --from-literal=BETTER_AUTH_SECRET='${{ secrets.BETTER_AUTH_SECRET }}' \
+            --from-literal=NEXT_PUBLIC_OPENAI_DOMAIN_KEY='${{ secrets.OPENAI_DOMAIN_KEY }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      # Generate image tag
+      - name: Get image tag
+        id: image_tag
+        run: |
+          SHA_SHORT=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tag=sha-${SHA_SHORT}" >> $GITHUB_OUTPUT
+
+      # Deploy with Helm
+      - name: Deploy backend
+        run: |
+          PROVIDER="${{ github.event.inputs.cloud_provider || 'oke' }}"
+          VALUES_FILE="charts/backend/values-${PROVIDER}.yaml"
+
+          if [ ! -f "$VALUES_FILE" ]; then
+            VALUES_FILE="charts/backend/values.yaml"
+          fi
+
+          helm upgrade --install todo-backend ./charts/backend \
+            --namespace todo-app \
+            --set image.tag=${{ steps.image_tag.outputs.tag }} \
+            --set image.pullPolicy=Always \
+            -f $VALUES_FILE \
+            --wait --timeout 5m
+
+      - name: Deploy frontend
+        run: |
+          PROVIDER="${{ github.event.inputs.cloud_provider || 'oke' }}"
+          VALUES_FILE="charts/frontend/values-${PROVIDER}.yaml"
+
+          if [ ! -f "$VALUES_FILE" ]; then
+            VALUES_FILE="charts/frontend/values.yaml"
+          fi
+
+          helm upgrade --install todo-frontend ./charts/frontend \
+            --namespace todo-app \
+            --set image.tag=${{ steps.image_tag.outputs.tag }} \
+            --set image.pullPolicy=Always \
+            -f $VALUES_FILE \
+            --wait --timeout 5m
+
+      - name: Deploy microservices
+        run: |
+          for chart in notification-service recurring-task-service audit-service; do
+            if [ -d "charts/${chart}" ]; then
+              helm upgrade --install ${chart} ./charts/${chart} \
+                --namespace todo-app \
+                --set image.tag=${{ steps.image_tag.outputs.tag }} \
+                --wait --timeout 3m
+            fi
+          done
+
+      # Verify deployment
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/todo-backend -n todo-app --timeout=300s
+          kubectl rollout status deployment/todo-frontend -n todo-app --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          # Get ingress IP
+          INGRESS_IP=$(kubectl get ingress -n todo-app -o jsonpath='{.items[0].status.loadBalancer.ingress[0].ip}')
+
+          # Test backend health
+          curl -f -s --max-time 30 "http://${INGRESS_IP}/api/health" || exit 1
+
+          # Test frontend
+          curl -f -s --max-time 30 "http://${INGRESS_IP}/" || exit 1
+
+          echo "Smoke tests passed!"
+
+      - name: Notify success
+        if: success()
+        run: |
+          echo "::notice::Deployment successful! Application available at https://todo.${{ secrets.DOMAIN }}"
+
+      - name: Notify failure
+        if: failure()
+        run: |
+          echo "::error::Deployment failed! Check logs for details."
+          # Could add Slack/Teams notification here
+
+  # ============================================
+  # JOB 4: Cleanup (on PR close)
+  # ============================================
+  cleanup:
+    name: Cleanup Preview
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+
+    steps:
+      - name: Cleanup preview environment
+        run: |
+          echo "Cleanup would remove preview environment for PR #${{ github.event.pull_request.number }}"
+          # helm uninstall todo-preview-${{ github.event.pull_request.number }} -n preview || true

@@ -1,0 +1,85 @@
+# Azure AKS-specific values for todo-frontend
+# Deploy with: helm upgrade --install todo-frontend ./charts/frontend -n todo-app -f charts/frontend/values-aks.yaml
+
+replicaCount: 2
+
+image:
+  # Replace with your Azure Container Registry name
+  # Example: todoregistry.azurecr.io/todo-frontend
+  repository: todoappcr2026.azurecr.io/todo-frontend
+  pullPolicy: Always
+  tag: "latest"
+
+# When using AKS with attached ACR, no imagePullSecrets needed
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+  port: 3000
+  targetPort: 3000
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: todo.yourdomain.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: todo-frontend-tls
+      hosts:
+        - todo.yourdomain.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - todo-frontend
+          topologyKey: kubernetes.io/hostname
+
+# Environment variables
+env:
+  - name: NEXT_PUBLIC_API_URL
+    value: "https://135.235.185.11.nip.io"
+  - name: NODE_ENV
+    value: "production"
+
+# Environment variables from ConfigMap/Secrets
+envFrom: []
+
+# Configuration values (non-sensitive)
+config:
+  NEXT_PUBLIC_API_URL: "https://135.235.185.11.nip.io"
+  NODE_ENV: "production"
+
+# Secrets are created separately via kubectl or Azure Key Vault
+secrets: {}

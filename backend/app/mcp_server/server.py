@@ -85,7 +85,7 @@ def get_all_tool_schemas() -> list[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "add_task",
-                "description": "Create a new task for the authenticated user",
+                "description": "Create a new task with optional priority and tags. Supports NLP extraction from title/description (e.g., 'urgent' → high priority, '#work' → work tag)",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -100,6 +100,16 @@ def get_all_tool_schemas() -> list[Dict[str, Any]]:
                         "description": {
                             "type": "string",
                             "description": "Optional task description (max 1000 characters)"
+                        },
+                        "priority": {
+                            "type": "string",
+                            "enum": ["high", "medium", "low"],
+                            "description": "Task priority (default: medium). Auto-detected from keywords: urgent/critical → high, normal → medium, someday → low"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Task tags (optional). Auto-extracted from patterns like 'with tags work', '#work', or 'tagged as work'"
                         }
                     },
                     "required": ["user_id", "title"]
@@ -113,7 +123,7 @@ def get_all_tool_schemas() -> list[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "list_tasks",
-                "description": "Get all tasks for the authenticated user with optional filtering",
+                "description": "Get tasks with advanced filtering by priority, tags, search, and status. Supports natural language queries like 'show high priority work tasks'",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -126,15 +136,33 @@ def get_all_tool_schemas() -> list[Dict[str, Any]]:
                             "enum": ["all", "pending", "completed"],
                             "description": "Filter tasks by completion status (default: all)"
                         },
+                        "priority": {
+                            "type": "string",
+                            "enum": ["high", "medium", "low"],
+                            "description": "Filter by priority level (optional)"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Filter by tags - returns tasks with any of the specified tags (optional)"
+                        },
+                        "search": {
+                            "type": "string",
+                            "description": "Search keyword for title/description (case-insensitive, optional)"
+                        },
                         "sort_by": {
                             "type": "string",
-                            "enum": ["created_at", "updated_at", "title"],
-                            "description": "Field to sort by (optional)"
+                            "enum": ["created_at", "title", "priority"],
+                            "description": "Field to sort by (default: created_at)"
                         },
                         "sort_order": {
                             "type": "string",
                             "enum": ["asc", "desc"],
-                            "description": "Sort order (optional)"
+                            "description": "Sort order (default: desc)"
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Natural language query for filtering (e.g., 'show high priority work tasks', 'find tasks about meeting'). Overrides other filters if provided."
                         }
                     },
                     "required": ["user_id"]
@@ -196,7 +224,7 @@ def get_all_tool_schemas() -> list[Dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "update_task",
-                "description": "Modify task title and/or description",
+                "description": "Modify task properties including title, description, priority, and tags",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -215,6 +243,16 @@ def get_all_tool_schemas() -> list[Dict[str, Any]]:
                         "description": {
                             "type": "string",
                             "description": "New task description (optional, max 1000 characters)"
+                        },
+                        "priority": {
+                            "type": "string",
+                            "enum": ["high", "medium", "low"],
+                            "description": "New task priority (optional)"
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "New task tags (optional, replaces existing tags)"
                         }
                     },
                     "required": ["user_id", "task_id"]

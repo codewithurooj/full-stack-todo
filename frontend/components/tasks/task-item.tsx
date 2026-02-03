@@ -10,9 +10,16 @@ import * as React from "react"
 import { Task } from "@/types/task"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Pencil, Trash2 } from "lucide-react"
+import { Pencil, Trash2, Bell } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
+import { PriorityBadge } from "./priority-badge"
+import { TagList } from "./tag-list"
+import { NotificationBadge } from "@/components/notifications/notification-display"
+import { ReminderManager } from "./reminder-manager"
+import { RecurrenceDisplayCompact } from "./recurrence-display"
+import { useReminders } from "@/hooks/useReminders"
+import { useBackendSession } from "@/lib/use-backend-session"
 
 export interface TaskItemProps {
   task: Task
@@ -32,6 +39,12 @@ export function TaskItem({
   showActions = true,
 }: TaskItemProps) {
   const [isHovered, setIsHovered] = React.useState(false)
+  const [showReminderManager, setShowReminderManager] = React.useState(false)
+
+  const { data: session } = useBackendSession()
+  const userId = session?.user?.id
+
+  const { activeCount } = useReminders(userId, task.id)
 
   const handleCheckboxChange = () => {
     if (onComplete) {
@@ -49,6 +62,7 @@ export function TaskItem({
 
   if (variant === "card") {
     return (
+      <>
       <div
         className={cn(
           "group relative p-4 sm:p-6 rounded-xl border-2 bg-white transition-all duration-300",
@@ -96,6 +110,12 @@ export function TaskItem({
           </p>
         )}
 
+        {/* Priority and Tags */}
+        <div className="flex flex-wrap items-center gap-2 ml-8 sm:ml-11 mb-3">
+          <PriorityBadge priority={task.priority} size="small" />
+          <TagList tags={task.tags} size="small" maxDisplay={5} />
+        </div>
+
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ml-8 sm:ml-11">
           <span className="text-xs text-gray-500 font-medium">
             Created {getRelativeTime(task.created_at)}
@@ -107,6 +127,17 @@ export function TaskItem({
               "sm:opacity-0 sm:-translate-x-2",
               isHovered && "sm:opacity-100 sm:translate-x-0"
             )}>
+              <Button
+                variant="ghost"
+                size="small"
+                onClick={() => setShowReminderManager(true)}
+                className="hover:bg-purple-50 hover:text-purple-600 flex-1 sm:flex-none min-h-[44px] relative"
+              >
+                <Bell className="h-4 w-4" />
+                {activeCount > 0 && (
+                  <NotificationBadge count={activeCount} size="small" className="absolute -top-1 -right-1" />
+                )}
+              </Button>
               <Button
                 variant="ghost"
                 size="small"
@@ -129,6 +160,15 @@ export function TaskItem({
           )}
         </div>
       </div>
+      {userId && (
+        <ReminderManager
+          task={task}
+          userId={userId}
+          isOpen={showReminderManager}
+          onClose={() => setShowReminderManager(false)}
+        />
+      )}
+      </>
     )
   }
 
@@ -182,6 +222,12 @@ export function TaskItem({
                 </p>
               )}
 
+              {/* Priority and Tags */}
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <PriorityBadge priority={task.priority} size="small" />
+                <TagList tags={task.tags} size="small" maxDisplay={5} />
+              </div>
+
               <span className="text-xs text-gray-500 font-medium">
                 Created {getRelativeTime(task.created_at)}
               </span>
@@ -193,6 +239,17 @@ export function TaskItem({
                 "sm:opacity-0 sm:-translate-x-2",
                 isHovered && "sm:opacity-100 sm:translate-x-0"
               )}>
+                <Button
+                  variant="ghost"
+                  size="small"
+                  onClick={() => setShowReminderManager(true)}
+                  className="hover:bg-purple-50 hover:text-purple-600 flex-1 sm:flex-none min-h-[44px] relative"
+                >
+                  <Bell className="h-4 w-4" />
+                  {activeCount > 0 && (
+                    <NotificationBadge count={activeCount} size="small" className="absolute -top-1 -right-1" />
+                  )}
+                </Button>
                 <Button
                   variant="ghost"
                   size="small"
@@ -216,6 +273,14 @@ export function TaskItem({
           </div>
         </div>
       </div>
+      {userId && (
+        <ReminderManager
+          task={task}
+          userId={userId}
+          isOpen={showReminderManager}
+          onClose={() => setShowReminderManager(false)}
+        />
+      )}
     </div>
   )
 }

@@ -1,0 +1,25 @@
+{{- if .Values.config }}
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: {{ .Values.config.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  {{- if .Values.config.tracing.enabled }}
+  tracing:
+    samplingRate: {{ .Values.config.tracing.samplingRate | quote }}
+    {{- if eq .Values.config.tracing.exporterType "zipkin" }}
+    zipkin:
+      endpointAddress: {{ .Values.config.tracing.zipkinEndpoint | quote }}
+    {{- end }}
+  {{- end }}
+  {{- if .Values.config.logging.enabled }}
+  logging:
+    apiLogging:
+      enabled: true
+      obfuscateURLs: false
+      omitHealthChecks: true
+  {{- end }}
+  metric:
+    enabled: true
+{{- end }}

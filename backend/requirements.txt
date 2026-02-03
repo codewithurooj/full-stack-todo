@@ -25,6 +25,7 @@ pytest==8.3.3
 pytest-asyncio==0.24.0
 pytest-cov==6.0.0
 httpx==0.27.2
+freezegun==1.5.1
 
 # Code Quality
 ruff==0.7.4
@@ -37,3 +38,13 @@ gunicorn==23.0.0
 mcp>=0.9.0
 openai>=1.0.0
 slowapi>=0.1.9
+
+# Task Scheduling & Datetime (Feature 010)
+apscheduler==3.10.4
+python-dateutil==2.8.2
+pytz==2024.1
+
+# Kafka Event-Driven Architecture (Feature 011)
+aiokafka==0.10.0
+pywebpush==1.14.1
+testcontainers[kafka]==4.8.2

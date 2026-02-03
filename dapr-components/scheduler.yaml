@@ -1,0 +1,46 @@
+# Dapr Jobs Component: Scheduler
+# Feature: 012-dapr-integration
+# Purpose: Scheduled reminder execution
+
+# Note: Dapr Jobs API (v1.0-alpha1) uses scheduler component
+# This configuration sets up the backing store for job persistence
+
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: scheduler
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: todo-app
+    feature: 012-dapr-integration
+spec:
+  type: scheduler.etcd
+  version: v1
+  metadata: []
+  # For Kubernetes, use built-in etcd
+  # For local dev, Dapr uses in-memory scheduler
+
+---
+# Alternative: Use cron binding for fallback pattern
+# This is a fallback if Jobs API is not suitable
+
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: reminder-cron
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: todo-app
+    feature: 012-dapr-integration
+spec:
+  type: bindings.cron
+  version: v1
+  metadata:
+    - name: schedule
+      value: "@every 1m"  # Poll every minute for due reminders
+    - name: direction
+      value: "input"
+
+# Scopes: Only notification service handles reminders
+scopes:
+  - notification-service

@@ -1,15 +1,14 @@
 /**
- * Tasks Page
- * Main task management interface
- * Based on specs/ui/task-management-ui.md
+ * Tasks Page - Enhanced with Intermediate Features
+ * Main task management interface with search, filters, and sorting
+ * Based on specs/009-intermediate-features/spec.md
  */
 
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useBackendSession } from "@/lib/use-backend-session"
-import { useTasks } from "@/hooks/use-tasks"
 import { useToast } from "@/components/ui/toast"
 import { useKeyboardShortcuts } from "@/hooks/use-keyboard-shortcuts"
 import { Confetti } from "@/components/ui/confetti"
@@ -19,26 +18,83 @@ import { Button } from "@/components/ui/button"
 import { Alert } from "@/components/ui/alert"
 import { Modal } from "@/components/ui/modal"
 import { TaskList } from "@/components/tasks/task-list"
-import { TaskFilters, TaskFilter } from "@/components/tasks/task-filters"
+import { SearchBar } from "@/components/tasks/search-bar"
+import { AdvancedTaskFilters, AdvancedFilterValues } from "@/components/tasks/advanced-task-filters"
+import { SortDropdown } from "@/components/tasks/sort-dropdown"
 import { CreateTaskForm } from "@/components/tasks/create-task-form"
 import { EditTaskForm } from "@/components/tasks/edit-task-form"
 import { DeleteTaskConfirmation } from "@/components/tasks/delete-task-confirmation"
-import { Task } from "@/types/task"
+import { Task, TaskCreate, TaskUpdate, TaskFilters } from "@/types/task"
+import { taskApi } from "@/lib/api/client"
 import { PlusCircle } from "lucide-react"
+import useSWR from "swr"
 
 export default function TasksPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data: session, isPending } = useBackendSession()
-  const { tasks, isLoading, error, createTask, updateTask, deleteTask, toggleComplete } = useTasks()
   const { showToast } = useToast()
 
-  const [filter, setFilter] = React.useState<TaskFilter>("all")
+  // URL-based filter state
+  const [search, setSearch] = React.useState(searchParams.get('search') || '')
+  const [sortBy, setSortBy] = React.useState(searchParams.get('sort_by') || 'created_at')
+  const [sortOrder, setSortOrder] = React.useState<'asc' | 'desc'>(
+    (searchParams.get('sort_order') as 'asc' | 'desc') || 'desc'
+  )
+  const [filters, setFilters] = React.useState<AdvancedFilterValues>({
+    priority: searchParams.get('priority') as any,
+    status: (searchParams.get('status') as any) || 'all',
+    tags: searchParams.getAll('tags'),
+    dateFrom: searchParams.get('date_from') || undefined,
+    dateTo: searchParams.get('date_to') || undefined,
+  })
+
+  // Modal states
   const [showCreateModal, setShowCreateModal] = React.useState(false)
   const [editingTask, setEditingTask] = React.useState<Task | null>(null)
   const [deletingTask, setDeletingTask] = React.useState<Task | null>(null)
   const [actionError, setActionError] = React.useState("")
   const [showConfetti, setShowConfetti] = React.useState(false)
   const [showShortcuts, setShowShortcuts] = React.useState(false)
+
+  const userId = session?.user?.id
+
+  // Fetch tasks with filters
+  const taskFilters: TaskFilters = React.useMemo(() => ({
+    search: search || undefined,
+    sort: sortBy as any,
+    order: sortOrder,
+    ...filters,
+  }), [search, sortBy, sortOrder, filters])
+
+  const { data: tasks, error, isLoading, mutate } = useSWR<Task[]>(
+    userId ? [`/api/${userId}/tasks`, taskFilters] : null,
+    () => userId ? taskApi.list(userId, taskFilters) : Promise.resolve([])
+  )
+
+  // Fetch available tags for autocomplete
+  const { data: tagsData } = useSWR(
+    userId ? `/api/${userId}/tasks/tags` : null,
+    () => userId ? taskApi.getTags(userId) : Promise.resolve({ tags: [], usage_count: {} })
+  )
+
+  const availableTags = tagsData?.tags || []
+
+  // Update URL when filters change
+  React.useEffect(() => {
+    const params = new URLSearchParams()
+    if (search) params.set('search', search)
+    if (sortBy !== 'created_at') params.set('sort_by', sortBy)
+    if (sortOrder !== 'desc') params.set('sort_order', sortOrder)
+    if (filters.priority) params.set('priority', filters.priority)
+    if (filters.status && filters.status !== 'all') params.set('status', filters.status)
+    if (filters.dateFrom) params.set('date_from', filters.dateFrom)
+    if (filters.dateTo) params.set('date_to', filters.dateTo)
+    filters.tags?.forEach(tag => params.append('tags', tag))
+
+    const newUrl = params.toString() ? `?${params.toString()}` : '/tasks'
+    router.replace(newUrl, { scroll: false })
+  }, [search, sortBy, sortOrder, filters, router])
 
   // Keyboard shortcuts
   useKeyboardShortcuts([
@@ -64,20 +120,13 @@ export default function TasksPage() {
     },
   ])
 
-  // Filter tasks - MUST be before conditional returns to follow Rules of Hooks
+  // Filtered tasks (for local display filtering)
   const filteredTasks = React.useMemo(() => {
     if (!tasks) return []
-    switch (filter) {
-      case "active":
-        return tasks.filter((task) => !task.completed)
-      case "completed":
-        return tasks.filter((task) => task.completed)
-      default:
-        return tasks
-    }
-  }, [tasks, filter])
+    return tasks
+  }, [tasks])
 
-  // Task counts - MUST be before conditional returns to follow Rules of Hooks
+  // Task counts
   const taskCounts = React.useMemo(
     () => ({
       all: tasks?.length || 0,
@@ -94,7 +143,7 @@ export default function TasksPage() {
     }
   }, [isPending, session, router])
 
-  // Loading state - now comes AFTER all hooks
+  // Loading state
   if (isPending || isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50/30">
@@ -108,9 +157,7 @@ export default function TasksPage() {
                   key={i}
                   className="relative p-5 rounded-xl border-2 border-gray-200 bg-white overflow-hidden"
                 >
-                  {/* Shimmer effect */}
                   <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/60 to-transparent" />
-
                   <div className="flex items-start gap-4">
                     <div className="h-5 w-5 bg-gray-200 rounded animate-pulse" />
                     <div className="flex-1 space-y-3">
@@ -128,12 +175,14 @@ export default function TasksPage() {
     )
   }
 
-  const handleCreateTask = async (data: { title: string; description?: string }) => {
+  const handleCreateTask = async (data: TaskCreate) => {
     try {
       setActionError("")
-      await createTask(data)
+      const newTask = await taskApi.create(userId!, data)
+      mutate()
       setShowCreateModal(false)
       showToast("Task created successfully!", "success")
+      return { id: newTask.id }
     } catch (err: any) {
       setActionError(err.message)
       showToast(err.message || "Failed to create task", "error")
@@ -141,10 +190,11 @@ export default function TasksPage() {
     }
   }
 
-  const handleUpdateTask = async (taskId: number, updates: { title?: string; description?: string }) => {
+  const handleUpdateTask = async (taskId: number, updates: TaskUpdate) => {
     try {
       setActionError("")
-      await updateTask(taskId, updates)
+      await taskApi.update(userId!, taskId, updates)
+      mutate()
       setEditingTask(null)
       showToast("Task updated successfully!", "success")
     } catch (err: any) {
@@ -157,7 +207,8 @@ export default function TasksPage() {
   const handleDeleteTask = async (taskId: number) => {
     try {
       setActionError("")
-      await deleteTask(taskId)
+      await taskApi.delete(userId!, taskId)
+      mutate()
       setDeletingTask(null)
       showToast("Task deleted successfully!", "success")
     } catch (err: any) {
@@ -170,15 +221,14 @@ export default function TasksPage() {
   const handleToggleComplete = async (taskId: number) => {
     try {
       setActionError("")
-      const task = tasks?.find(t => t.id === taskId)
-      await toggleComplete(taskId)
+      const task = tasks?.find((t) => t.id === taskId)
+      await taskApi.toggleComplete(userId!, taskId)
+      mutate()
       if (task) {
         if (!task.completed) {
-          // Task was just completed - show celebration!
           setShowConfetti(true)
-          showToast("Task completed! Great job! 🎉", "success")
+          showToast("Task completed! Great job!", "success")
         } else {
-          // Task was uncompleted
           showToast("Task marked as incomplete", "success")
         }
       }
@@ -188,12 +238,15 @@ export default function TasksPage() {
     }
   }
 
+  const handleSortChange = (newSortBy: string, newSortOrder: 'asc' | 'desc') => {
+    setSortBy(newSortBy)
+    setSortOrder(newSortOrder)
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-purple-50/20 relative overflow-hidden">
-      {/* Confetti celebration */}
       <Confetti trigger={showConfetti} onComplete={() => setShowConfetti(false)} />
 
-      {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 right-20 w-72 h-72 bg-blue-400/5 rounded-full blur-3xl animate-pulse" />
         <div className="absolute bottom-20 left-20 w-72 h-72 bg-purple-400/5 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
@@ -202,14 +255,16 @@ export default function TasksPage() {
       <Navbar />
 
       <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 relative">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-6xl mx-auto">
           {/* Page Header */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 sm:mb-8">
             <div>
               <h1 className="text-2xl sm:text-3xl md:text-4xl font-extrabold bg-gradient-to-r from-gray-900 via-blue-800 to-purple-800 bg-clip-text text-transparent mb-1 sm:mb-2">
                 My Tasks
               </h1>
-              <p className="text-gray-600 text-xs sm:text-sm">Organize and track your daily tasks</p>
+              <p className="text-gray-600 text-xs sm:text-sm">
+                Organize and track your daily tasks with priorities, tags, and filters
+              </p>
             </div>
             <Button
               onClick={() => setShowCreateModal(true)}
@@ -217,7 +272,6 @@ export default function TasksPage() {
               className="shadow-lg shadow-blue-500/30 w-full sm:w-auto"
             >
               <span className="sm:inline">New Task</span>
-              <span className="hidden sm:inline"></span>
             </Button>
           </div>
 
@@ -232,21 +286,41 @@ export default function TasksPage() {
             />
           )}
 
-          {/* Filters */}
-          <TaskFilters
-            activeFilter={filter}
-            onFilterChange={setFilter}
-            taskCounts={taskCounts}
+          {/* Search and Sort Controls */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="md:col-span-2">
+              <SearchBar
+                value={search}
+                onChange={setSearch}
+                resultCount={filteredTasks.length}
+                placeholder="Search tasks by title or description..."
+              />
+            </div>
+            <div>
+              <SortDropdown
+                sortBy={sortBy}
+                sortOrder={sortOrder}
+                onSortChange={handleSortChange}
+              />
+            </div>
+          </div>
+
+          {/* Advanced Filters */}
+          <AdvancedTaskFilters
+            filters={filters}
+            onFilterChange={setFilters}
+            availableTags={availableTags}
+            className="mb-6"
           />
 
           {/* Task List */}
           <TaskList
             tasks={filteredTasks}
-            filter={filter}
+            filter={filters.status || 'all'}
             onTaskComplete={handleToggleComplete}
             onTaskEdit={setEditingTask}
             onTaskDelete={(taskId) => {
-              const task = tasks.find((t) => t.id === taskId)
+              const task = tasks?.find((t) => t.id === taskId)
               if (task) setDeletingTask(task)
             }}
           />
@@ -260,8 +334,10 @@ export default function TasksPage() {
         size="medium"
       >
         <CreateTaskForm
+          userId={userId}
           onSubmit={handleCreateTask}
           onCancel={() => setShowCreateModal(false)}
+          availableTags={availableTags}
         />
       </Modal>
 
@@ -273,6 +349,7 @@ export default function TasksPage() {
           size="medium"
         >
           <EditTaskForm
+            userId={userId}
             task={editingTask}
             onSubmit={handleUpdateTask}
             onCancel={() => setEditingTask(null)}
@@ -280,6 +357,8 @@ export default function TasksPage() {
               setDeletingTask(editingTask)
               setEditingTask(null)
             }}
+            availableTags={availableTags}
+            onRecurringChange={mutate}
           />
         </Modal>
       )}

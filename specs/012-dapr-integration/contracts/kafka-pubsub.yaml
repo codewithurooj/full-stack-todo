@@ -1,0 +1,56 @@
+# Dapr Pub/Sub Component: Kafka
+# Feature: 012-dapr-integration
+# Purpose: Event streaming abstraction over Kafka/Redpanda
+
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: kafka-pubsub
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: todo-app
+    feature: 012-dapr-integration
+spec:
+  type: pubsub.kafka
+  version: v1
+  metadata:
+    # Broker configuration
+    - name: brokers
+      secretKeyRef:
+        name: kafka-credentials
+        key: brokers
+
+    # Authentication (SASL/SCRAM for cloud, PLAINTEXT for local)
+    - name: authType
+      value: "password"  # Change to "none" for local development
+    - name: saslUsername
+      secretKeyRef:
+        name: kafka-credentials
+        key: username
+    - name: saslPassword
+      secretKeyRef:
+        name: kafka-credentials
+        key: password
+
+    # Consumer configuration
+    - name: consumerGroup
+      value: "todo-service-group"
+    - name: initialOffset
+      value: "oldest"  # Process all unread messages
+
+    # Producer configuration
+    - name: maxMessageBytes
+      value: "1048576"  # 1MB max message size
+    - name: requiredAcks
+      value: "all"  # Wait for all replicas
+
+    # TLS configuration (for cloud deployments)
+    - name: disableTls
+      value: "false"  # Set to "true" for local without TLS
+
+# Scopes: Only these services can use this component
+scopes:
+  - backend-service
+  - notification-service
+  - audit-service
+  - recurring-task-service

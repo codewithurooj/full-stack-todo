@@ -227,6 +227,29 @@ BETTER_AUTH_SECRET=your-secret-32-chars-min
 - ✅ Use the API client for all requests
 - ✅ Never expose secrets in client code
 
+## TypeScript & React Common Pitfalls
+
+**⚠️ IMPORTANT**: Before starting new components, read [`../TYPESCRIPT_REACT_BEST_PRACTICES.md`](../TYPESCRIPT_REACT_BEST_PRACTICES.md)
+
+Common issues to avoid:
+- Type consistency (filter status values across components)
+- Union type comparisons (don't compare to values not in union)
+- Button size/variant props (use "small", "danger", not "sm", "destructive")
+- API field naming (use snake_case: `date_from`, not `dateFrom`)
+- Multiple JSX root elements (wrap in `<>...</>`)
+- Promise return types (async functions must return Promises)
+- Missing UI components (check dependencies exist before importing)
+
+**See full guide**: `TYPESCRIPT_REACT_BEST_PRACTICES.md` in project root
+
+---
+
+## See Also
+
+- **[TypeScript & React Best Practices](../TYPESCRIPT_REACT_BEST_PRACTICES.md)** - Comprehensive dos and don'ts
+- **[Timezone & Testing Guide](../backend/TIMEZONE_AND_TESTING_GUIDE.md)** - Backend testing patterns
+- **[Project README](../README.md)** - Project overview and deployment
+
 ---
 
 **Build fast, type-safe React apps with Next.js!** ⚛️

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "audit-service.fullname" . }}
+  labels:
+    {{- include "audit-service.labels" . | nindent 4 }}
+data:
+  KAFKA_BOOTSTRAP_SERVERS: {{ .Values.kafka.bootstrapServers | quote }}
+  KAFKA_TOPIC: {{ .Values.kafka.topic | quote }}
+  CONSUMER_GROUP_ID: {{ .Values.kafka.consumerGroup | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  BATCH_SIZE: {{ .Values.config.batchSize | quote }}
+  BATCH_TIMEOUT_SECONDS: {{ .Values.config.batchTimeoutSeconds | quote }}

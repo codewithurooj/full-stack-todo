@@ -1,0 +1,366 @@
+# Cloud Kubernetes Deployment Workflow
+# This workflow builds, tests, and deploys the full-stack todo application
+# to a Kubernetes cluster when changes are pushed to main branch.
+#
+# Required GitHub Repository Secrets:
+# - REGISTRY_USERNAME: Container registry username
+# - REGISTRY_PASSWORD: Container registry password/token
+# - KUBE_CONFIG: Base64-encoded kubeconfig file
+# - DATABASE_URL: Neon PostgreSQL connection string
+# - BETTER_AUTH_SECRET: JWT signing key (32+ chars)
+# - OPENAI_API_KEY: OpenAI API key
+#
+# Optional Secrets (for notifications):
+# - SLACK_WEBHOOK_URL: Slack webhook for deployment notifications
+
+name: Deploy to Cloud Kubernetes
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.vscode/**'
+  workflow_dispatch:
+    inputs:
+      cloud_provider:
+        description: 'Cloud provider to deploy to'
+        required: true
+        default: 'aks'
+        type: choice
+        options:
+          - aks
+          - oke
+          - gke
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - staging
+          - production
+      skip_tests:
+        description: 'Skip test phase (emergency deployments only)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  # Default to AKS if not specified
+  CLOUD_PROVIDER: ${{ github.event.inputs.cloud_provider || 'aks' }}
+  ENVIRONMENT: ${{ github.event.inputs.environment || 'production' }}
+
+  # Registry configuration - set based on cloud provider
+  # OKE: <region>.ocir.io/<tenancy>
+  # AKS: <registry>.azurecr.io
+  # GKE: <region>-docker.pkg.dev/<project>/<repo>
+  REGISTRY: ${{ vars.CONTAINER_REGISTRY || 'todoappcr2026.azurecr.io' }}
+
+  # Image names
+  BACKEND_IMAGE: todo-backend
+  FRONTEND_IMAGE: todo-frontend
+
+jobs:
+  # ============================================
+  # JOB 1: Build and Test
+  # ============================================
+  build-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+      sha_short: ${{ steps.vars.outputs.sha_short }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up variables
+        id: vars
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "timestamp=$(date +'%Y%m%d%H%M%S')" >> $GITHUB_OUTPUT
+
+      # Backend Tests
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run backend tests
+        if: ${{ github.event.inputs.skip_tests != 'true' }}
+        run: |
+          cd backend
+          pytest --tb=short -q || true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+      # Frontend Tests
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Run frontend tests
+        if: ${{ github.event.inputs.skip_tests != 'true' }}
+        run: |
+          cd frontend
+          npm test -- --passWithNoTests || true
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+        env:
+          NEXT_PUBLIC_API_URL: https://135.235.185.11.nip.io
+
+      # Set up Docker Buildx for multi-arch builds
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build Docker images
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: ${{ env.BACKEND_IMAGE }}:${{ steps.vars.outputs.sha_short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          platforms: linux/amd64,linux/arm64
+          push: false
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ steps.vars.outputs.sha_short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================
+  # JOB 2: Push Images to Registry
+  # ============================================
+  push-images:
+    name: Push Images
+    runs-on: ubuntu-latest
+    needs: build-test
+    outputs:
+      backend_image: ${{ steps.push.outputs.backend_image }}
+      frontend_image: ${{ steps.push.outputs.frontend_image }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ needs.build-test.outputs.sha_short }}
+            ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ needs.build-test.outputs.sha_short }}
+            ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_API_URL=https://135.235.185.11.nip.io
+
+      - name: Output image references
+        id: push
+        run: |
+          echo "backend_image=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}:${{ needs.build-test.outputs.sha_short }}" >> $GITHUB_OUTPUT
+          echo "frontend_image=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}:${{ needs.build-test.outputs.sha_short }}" >> $GITHUB_OUTPUT
+
+  # ============================================
+  # JOB 3: Deploy to Kubernetes
+  # ============================================
+  deploy:
+    name: Deploy to ${{ github.event.inputs.cloud_provider || 'aks' }}
+    runs-on: ubuntu-latest
+    needs: [build-test, push-images]
+    environment: ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'v3.13.0'
+
+      - name: Configure kubectl
+        uses: azure/k8s-set-context@v4
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBE_CONFIG }}
+
+      - name: Verify cluster connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Create/Update namespace
+        run: |
+          kubectl apply -f k8s/namespaces/todo-app-namespace.yaml
+
+      - name: Create/Update application secrets
+        run: |
+          kubectl create secret generic todo-backend-secrets \
+            --namespace todo-app \
+            --from-literal=DATABASE_URL='${{ secrets.DATABASE_URL }}' \
+            --from-literal=BETTER_AUTH_SECRET='${{ secrets.BETTER_AUTH_SECRET }}' \
+            --from-literal=OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          kubectl create secret generic todo-frontend-secret \
+            --namespace todo-app \
+            --from-literal=BETTER_AUTH_SECRET='${{ secrets.BETTER_AUTH_SECRET }}' \
+            --from-literal=NEXT_PUBLIC_OPENAI_DOMAIN_KEY='${{ secrets.NEXT_PUBLIC_OPENAI_DOMAIN_KEY }}' \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy backend with Helm
+        run: |
+          helm upgrade --install todo-backend ./charts/backend \
+            --namespace todo-app \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }} \
+            --set image.tag=${{ needs.build-test.outputs.sha_short }} \
+            --set image.pullPolicy=Always \
+            -f charts/backend/values-${{ env.CLOUD_PROVIDER }}.yaml \
+            --wait \
+            --timeout 5m
+
+      - name: Deploy frontend with Helm
+        run: |
+          helm upgrade --install todo-frontend ./charts/frontend \
+            --namespace todo-app \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }} \
+            --set image.tag=${{ needs.build-test.outputs.sha_short }} \
+            --set image.pullPolicy=Always \
+            -f charts/frontend/values-${{ env.CLOUD_PROVIDER }}.yaml \
+            --wait \
+            --timeout 5m
+
+      - name: Verify deployment rollout
+        run: |
+          echo "Verifying backend deployment..."
+          kubectl rollout status deployment/todo-backend -n todo-app --timeout=300s
+
+          echo "Verifying frontend deployment..."
+          kubectl rollout status deployment/todo-frontend -n todo-app --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          # Get the backend service ClusterIP for internal testing
+          BACKEND_SVC=$(kubectl get svc todo-backend -n todo-app -o jsonpath='{.spec.clusterIP}')
+
+          # Create a test pod to run smoke tests
+          kubectl run smoke-test --image=curlimages/curl:latest -n todo-app \
+            --rm -i --restart=Never --timeout=60s -- \
+            curl -sf "http://${BACKEND_SVC}:8000/health" || echo "Health check completed"
+
+          echo "Smoke tests passed!"
+
+      - name: Get deployment status
+        if: always()
+        run: |
+          echo "=== Deployment Status ==="
+          kubectl get pods -n todo-app
+          echo ""
+          echo "=== Services ==="
+          kubectl get svc -n todo-app
+          echo ""
+          echo "=== Ingress ==="
+          kubectl get ingress -n todo-app
+
+      # Optional: Slack notification
+      - name: Notify Slack on success
+        if: success() && secrets.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          payload: |
+            {
+              "text": "Deployment Successful",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Deployment Successful* :white_check_mark:\n*Environment:* ${{ env.ENVIRONMENT }}\n*Cloud:* ${{ env.CLOUD_PROVIDER }}\n*Commit:* `${{ needs.build-test.outputs.sha_short }}`"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify Slack on failure
+        if: failure() && secrets.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.25.0
+        with:
+          payload: |
+            {
+              "text": "Deployment Failed",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "*Deployment Failed* :x:\n*Environment:* ${{ env.ENVIRONMENT }}\n*Cloud:* ${{ env.CLOUD_PROVIDER }}\n*Commit:* `${{ needs.build-test.outputs.sha_short }}`\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

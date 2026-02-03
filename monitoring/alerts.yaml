@@ -1,0 +1,241 @@
+# Prometheus Alerting Rules
+# Feature 011: Event-Driven Architecture with Kafka
+
+groups:
+  - name: kafka_event_architecture
+    interval: 30s
+    rules:
+      # Consumer Lag Alerts
+      - alert: HighConsumerLag
+        expr: max(recurring_task_consumer_lag) > 1000 or
+              max(notification_consumer_lag) > 1000 or
+              max(audit_consumer_lag) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: consumer
+        annotations:
+          summary: "High consumer lag detected"
+          description: "Consumer lag is {{ $value }} events for {{ $labels.service }}"
+
+      - alert: CriticalConsumerLag
+        expr: max(recurring_task_consumer_lag) > 10000 or
+              max(notification_consumer_lag) > 10000 or
+              max(audit_consumer_lag) > 10000
+        for: 2m
+        labels:
+          severity: critical
+          component: consumer
+        annotations:
+          summary: "Critical consumer lag detected"
+          description: "Consumer lag is {{ $value }} events for {{ $labels.service }}. Immediate action required."
+
+      # Service Health Alerts
+      - alert: ServiceUnhealthy
+        expr: recurring_task_service_health == 0 or
+              notification_service_health == 0 or
+              audit_service_health == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: service
+        annotations:
+          summary: "Service is unhealthy"
+          description: "{{ $labels.service }} reported unhealthy status"
+
+      - alert: KafkaConnectionLost
+        expr: recurring_task_kafka_connection_status == 0 or
+              notification_kafka_connection_status == 0 or
+              audit_kafka_connection_status == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: kafka
+        annotations:
+          summary: "Kafka connection lost"
+          description: "{{ $labels.service }} lost connection to Kafka"
+
+      - alert: DatabaseConnectionLost
+        expr: recurring_task_database_connection_status == 0 or
+              audit_database_connection_status == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection lost"
+          description: "{{ $labels.service }} lost connection to database"
+
+      # Failure Rate Alerts
+      - alert: HighInstanceCreationFailureRate
+        expr: |
+          rate(recurring_task_instances_creation_failures_total[5m]) /
+          (rate(recurring_task_instances_created_total[5m]) + rate(recurring_task_instances_creation_failures_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: recurring_task_service
+        annotations:
+          summary: "High instance creation failure rate"
+          description: "Instance creation failure rate is {{ $value | humanizePercentage }}"
+
+      - alert: HighNotificationFailureRate
+        expr: |
+          rate(notification_notifications_sent_total{status="failed"}[5m]) /
+          rate(notification_notifications_sent_total[5m])
+          > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          component: notification_service
+        annotations:
+          summary: "High notification failure rate"
+          description: "Notification failure rate is {{ $value | humanizePercentage }}"
+
+      - alert: HighAuditLogInsertionFailureRate
+        expr: |
+          rate(audit_audit_log_insertion_failures_total[5m]) /
+          (rate(audit_audit_logs_inserted_total[5m]) + rate(audit_audit_log_insertion_failures_total[5m]))
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: audit_service
+        annotations:
+          summary: "High audit log insertion failure rate"
+          description: "Audit log insertion failure rate is {{ $value | humanizePercentage }}"
+
+      # Performance Alerts
+      - alert: HighEventProcessingLatency
+        expr: histogram_quantile(0.95,
+                rate(recurring_task_event_processing_duration_seconds_bucket[5m])) > 1.0
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High event processing latency (p95)"
+          description: "p95 event processing latency is {{ $value }}s"
+
+      - alert: HighNotificationDeliveryLatency
+        expr: histogram_quantile(0.95,
+                rate(notification_delivery_duration_seconds_bucket[5m])) > 5.0
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High notification delivery latency (p95)"
+          description: "p95 notification delivery latency is {{ $value }}s"
+
+      # Business Logic Alerts
+      - alert: TooManyLateNotifications
+        expr: rate(notification_late_notifications_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: notification_service
+        annotations:
+          summary: "Too many late notifications"
+          description: "{{ $value }} late notifications per second. Check service downtime."
+
+      - alert: NoEventsConsumed
+        expr: rate(audit_events_consumed_total[5m]) == 0 and
+              rate(recurring_task_events_consumed_total[5m]) == 0
+        for: 10m
+        labels:
+          severity: warning
+          component: kafka
+        annotations:
+          summary: "No events being consumed"
+          description: "No events consumed in last 10 minutes. Check Kafka broker health."
+
+      # Batch Processing Alerts
+      - alert: AuditBatchSizeAlwaysAtLimit
+        expr: |
+          histogram_quantile(0.90,
+            rate(audit_batch_size_bucket[5m])) >= 100
+        for: 15m
+        labels:
+          severity: info
+          component: audit_service
+        annotations:
+          summary: "Audit batch size consistently at limit"
+          description: "Consider increasing BATCH_SIZE for better throughput"
+
+      - alert: LongTimeSinceLastBatchCommit
+        expr: audit_time_since_last_commit_seconds > 30
+        for: 1m
+        labels:
+          severity: warning
+          component: audit_service
+        annotations:
+          summary: "Long time since last batch commit"
+          description: "{{ $value }}s since last commit. Check for processing stall."
+
+      # Rate Limiting Alerts
+      - alert: FrequentRateLimiting
+        expr: rate(notification_rate_limit_hits_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: info
+          component: notification_service
+        annotations:
+          summary: "Frequent rate limiting occurring"
+          description: "{{ $value }} rate limit hits per second. User may be setting too many reminders."
+
+      # Capacity Alerts
+      - alert: HighPendingBatchSize
+        expr: audit_pending_batch_size > 90
+        for: 5m
+        labels:
+          severity: info
+          component: audit_service
+        annotations:
+          summary: "High pending batch size"
+          description: "Pending batch has {{ $value }} events. Nearing commit threshold."
+
+  - name: sla_targets
+    interval: 60s
+    rules:
+      # SLA: 99.9% recurring instance creation reliability
+      - alert: RecurringInstanceCreationSLABreach
+        expr: |
+          sum(rate(recurring_task_instances_created_total[1h])) /
+          (sum(rate(recurring_task_instances_created_total[1h])) +
+           sum(rate(recurring_task_instances_creation_failures_total[1h])))
+          < 0.999
+        for: 1h
+        labels:
+          severity: critical
+          sla: recurring_reliability
+        annotations:
+          summary: "SLA breach: Recurring instance creation < 99.9%"
+          description: "Current reliability: {{ $value | humanizePercentage }}"
+
+      # SLA: 99% notification delivery rate
+      - alert: NotificationDeliverySLABreach
+        expr: |
+          sum(rate(notification_notifications_sent_total{status="success"}[1h])) /
+          sum(rate(notification_notifications_sent_total[1h]))
+          < 0.99
+        for: 1h
+        labels:
+          severity: critical
+          sla: notification_delivery
+        annotations:
+          summary: "SLA breach: Notification delivery < 99%"
+          description: "Current delivery rate: {{ $value | humanizePercentage }}"
+
+      # SLA: <500ms event latency (p95)
+      - alert: EventLatencySLABreach
+        expr: histogram_quantile(0.95,
+                rate(audit_event_processing_duration_seconds_bucket[5m])) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+          sla: event_latency
+        annotations:
+          summary: "SLA breach: p95 event latency > 500ms"
+          description: "Current p95 latency: {{ $value }}s"

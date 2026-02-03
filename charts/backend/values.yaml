@@ -24,6 +24,20 @@ serviceAccount:
 
 podAnnotations: {}
 
+# Dapr configuration (Feature 012)
+dapr:
+  enabled: false
+  appId: "backend-service"
+  appPort: "8000"
+  enableApiLogging: "true"
+  logLevel: "info"
+  config: "daprsystem"
+  # Components for this service
+  components:
+    pubsub: "kafka-pubsub"
+    statestore: "statestore"
+    secretstore: "kubernetes-secrets"
+
 podSecurityContext: {}
   # runAsNonRoot: true
   # runAsUser: 1001

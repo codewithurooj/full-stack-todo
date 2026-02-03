@@ -1,0 +1,120 @@
+replicaCount: 1
+
+image:
+  repository: recurring-task-service
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+# Dapr configuration (Feature 012)
+dapr:
+  enabled: false
+  appId: "recurring-task-service"
+  appPort: "8001"
+  enableApiLogging: "true"
+  logLevel: "info"
+  config: "daprsystem"
+  components:
+    pubsub: "kafka-pubsub"
+    secretstore: "kubernetes-secrets"
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 8001
+  metricsPort: 8080
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+    - type: External
+      external:
+        metric:
+          name: kafka_consumer_lag
+          selector:
+            matchLabels:
+              consumer_group: recurring-task-service-group
+        target:
+          type: Value
+          value: "100"
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Kafka Configuration
+kafka:
+  bootstrapServers: "kafka:9092"
+  topic: "task-events"
+  consumerGroup: "recurring-task-service-group"
+  sasl:
+    enabled: false
+    username: ""
+    password: ""
+  securityProtocol: "PLAINTEXT"
+
+# Database Configuration
+database:
+  url: ""  # Set via secret
+
+# Application Configuration
+config:
+  logLevel: "INFO"
+  maxRetries: 3
+  retryBackoff: 1.0
+
+# Probes
+livenessProbe:
+  enabled: true
+  httpGet:
+    path: /health
+    port: 8001
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  enabled: true
+  httpGet:
+    path: /health
+    port: 8001
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Prometheus Monitoring
+metrics:
+  enabled: true
+  port: 8080
+  path: /metrics
+  serviceMonitor:
+    enabled: true
+    interval: 15s
+    scrapeTimeout: 10s

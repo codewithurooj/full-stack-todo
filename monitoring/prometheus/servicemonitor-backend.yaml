@@ -1,0 +1,29 @@
+# ServiceMonitor for todo-backend
+# Requires Prometheus Operator (installed via kube-prometheus-stack)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: todo-backend
+  namespace: todo-app
+  labels:
+    app.kubernetes.io/name: todo-backend
+    app.kubernetes.io/part-of: full-stack-todo
+    release: kube-prometheus  # Must match Prometheus selector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: todo-backend
+  namespaceSelector:
+    matchNames:
+      - todo-app
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      honorLabels: true
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace

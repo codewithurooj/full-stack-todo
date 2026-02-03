@@ -1,0 +1,58 @@
+# Oracle Cloud OKE-specific values for notification-service
+# Deploy with: helm upgrade --install notification-service ./charts/notification-service -n todo-app -f charts/notification-service/values-oke.yaml
+
+replicaCount: 1
+
+image:
+  # Replace <region> and <tenancy> with your Oracle Cloud values
+  repository: <region>.ocir.io/<tenancy>/notification-service
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: ocir-secret
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+env:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"  # Or Redpanda Cloud bootstrap servers
+  KAFKA_TOPIC: "reminders"
+  CONSUMER_GROUP_ID: "notification-service"
+  LOG_LEVEL: "INFO"
+  BATCH_WINDOW_SECONDS: "120"
+  RATE_LIMIT_PER_USER: "10"
+  RATE_LIMIT_WINDOW_SECONDS: "60"
+  VAPID_CLAIMS_EMAIL: "mailto:admin@example.com"
+
+# Database secret
+database:
+  secretName: "todo-backend-secret"
+  secretKey: "DATABASE_URL"
+
+# VAPID secrets for Web Push
+vapid:
+  secretName: "vapid-secret"
+  publicKeyField: "VAPID_PUBLIC_KEY"
+  privateKeyField: "VAPID_PRIVATE_KEY"
+
+# Dapr configuration
+dapr:
+  enabled: true
+  appId: "notification-service"
+  appPort: "8001"
+  enableApiLogging: "true"
+  logLevel: "info"
+  config: "daprsystem"
+  components:
+    pubsub: "kafka-pubsub"
+    secretstore: "kubernetes-secrets"
+
+# Oracle OKE ARM instances node selector
+nodeSelector:
+  kubernetes.io/arch: arm64  # Remove if using AMD64 instances

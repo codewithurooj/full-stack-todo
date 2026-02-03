@@ -1,0 +1,322 @@
+# Kubernetes Ingress Templates
+# Feature: 013-cloud-k8s-deployment
+# Purpose: HTTPS traffic routing with TLS termination
+# Status: Contract/Template - To be implemented in charts/*/templates/ingress.yaml
+
+---
+# ==============================================
+# Single Ingress with Path-Based Routing
+# ==============================================
+# Recommended approach: Single Ingress routes traffic to both frontend and backend
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-app-ingress
+  namespace: todo-app
+  labels:
+    app.kubernetes.io/name: todo-app
+    app.kubernetes.io/component: ingress
+  annotations:
+    # TLS Certificate Management
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # NGINX Ingress Controller settings
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+
+    # Security Headers (HSTS)
+    nginx.ingress.kubernetes.io/hsts: "true"
+    nginx.ingress.kubernetes.io/hsts-max-age: "31536000"
+    nginx.ingress.kubernetes.io/hsts-include-subdomains: "true"
+
+    # Rate Limiting (optional)
+    # nginx.ingress.kubernetes.io/limit-rps: "10"
+    # nginx.ingress.kubernetes.io/limit-connections: "5"
+
+spec:
+  ingressClassName: nginx
+
+  # TLS Configuration
+  tls:
+    - hosts:
+        - todo.yourdomain.com
+      secretName: todo-app-tls-secret
+
+  # Routing Rules
+  rules:
+    - host: todo.yourdomain.com
+      http:
+        paths:
+          # API routes to backend
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: todo-backend
+                port:
+                  number: 8000
+
+          # Health endpoint for monitoring
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: todo-backend
+                port:
+                  number: 8000
+
+          # All other routes to frontend
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: todo-frontend
+                port:
+                  number: 3000
+
+---
+# ==============================================
+# Helm Template Version (for charts)
+# ==============================================
+# This is the Helm-templated version for use in charts
+
+# {{- if .Values.ingress.enabled -}}
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: {{ include "todo-app.fullname" . }}
+#   namespace: {{ .Release.Namespace }}
+#   labels:
+#     {{- include "todo-app.labels" . | nindent 4 }}
+#   {{- with .Values.ingress.annotations }}
+#   annotations:
+#     {{- toYaml . | nindent 4 }}
+#   {{- end }}
+# spec:
+#   {{- if .Values.ingress.className }}
+#   ingressClassName: {{ .Values.ingress.className }}
+#   {{- end }}
+#   {{- if .Values.ingress.tls }}
+#   tls:
+#     {{- range .Values.ingress.tls }}
+#     - hosts:
+#         {{- range .hosts }}
+#         - {{ . | quote }}
+#         {{- end }}
+#       secretName: {{ .secretName }}
+#     {{- end }}
+#   {{- end }}
+#   rules:
+#     {{- range .Values.ingress.hosts }}
+#     - host: {{ .host | quote }}
+#       http:
+#         paths:
+#           {{- range .paths }}
+#           - path: {{ .path }}
+#             pathType: {{ .pathType }}
+#             backend:
+#               service:
+#                 name: {{ .service | default (include "todo-app.fullname" $) }}
+#                 port:
+#                   number: {{ .port }}
+#           {{- end }}
+#     {{- end }}
+# {{- end }}
+
+---
+# ==============================================
+# Cloud-Specific Annotations Reference
+# ==============================================
+
+# Azure AKS with Application Gateway Ingress Controller (AGIC)
+# ---
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   annotations:
+#     kubernetes.io/ingress.class: azure/application-gateway
+#     appgw.ingress.kubernetes.io/ssl-redirect: "true"
+#     appgw.ingress.kubernetes.io/backend-protocol: "http"
+
+# Google GKE with Google Cloud Load Balancer
+# ---
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   annotations:
+#     kubernetes.io/ingress.class: gce
+#     kubernetes.io/ingress.global-static-ip-name: todo-app-ip
+#     networking.gke.io/managed-certificates: todo-app-cert
+
+# Oracle OKE with OCI Load Balancer
+# ---
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   annotations:
+#     kubernetes.io/ingress.class: nginx
+#     # OCI-specific LB shape annotation (on the LoadBalancer service, not ingress)
+#     # service.beta.kubernetes.io/oci-load-balancer-shape: "flexible"
+
+---
+# ==============================================
+# CORS Configuration for API
+# ==============================================
+# If frontend and backend need different CORS settings
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-backend-ingress
+  namespace: todo-app
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+    # CORS headers for API
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://todo.yourdomain.com"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "Authorization, Content-Type"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - api.todo.yourdomain.com
+      secretName: todo-api-tls-secret
+  rules:
+    - host: api.todo.yourdomain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: todo-backend
+                port:
+                  number: 8000
+
+---
+# ==============================================
+# Namespace Definition
+# ==============================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: todo-app
+  labels:
+    app.kubernetes.io/name: todo-app
+    app.kubernetes.io/part-of: todo-system
+  annotations:
+    description: "Full-stack Todo Application namespace"
+
+---
+# ==============================================
+# Network Policy (Optional Security)
+# ==============================================
+# Restrict traffic to only allow ingress controller to reach services
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-services
+  namespace: todo-app
+spec:
+  podSelector: {}  # Applies to all pods in namespace
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from ingress-nginx namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000  # Frontend
+        - protocol: TCP
+          port: 8000  # Backend
+
+    # Allow internal service-to-service communication
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 3000
+
+---
+# ==============================================
+# NGINX Ingress Controller Installation Reference
+# ==============================================
+
+# Install NGINX Ingress Controller for cloud providers:
+
+# Generic cloud (Azure, GCP, Oracle)
+# kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml
+
+# Get the LoadBalancer external IP
+# kubectl get svc -n ingress-nginx ingress-nginx-controller
+
+# Expected output:
+# NAME                       TYPE           CLUSTER-IP     EXTERNAL-IP    PORT(S)
+# ingress-nginx-controller   LoadBalancer   10.0.xxx.xxx   <PUBLIC-IP>    80:xxxxx/TCP,443:xxxxx/TCP
+
+# Configure DNS A record:
+# todo.yourdomain.com → <PUBLIC-IP>
+
+# Verify installation:
+# kubectl get pods -n ingress-nginx
+# kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx
+
+---
+# ==============================================
+# Values File Reference (for Helm charts)
+# ==============================================
+
+# Add to charts/backend/values.yaml or values-cloud.yaml:
+#
+# ingress:
+#   enabled: true
+#   className: "nginx"
+#   annotations:
+#     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+#     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+#   hosts:
+#     - host: todo.yourdomain.com
+#       paths:
+#         - path: /api
+#           pathType: Prefix
+#           port: 8000
+#   tls:
+#     - secretName: todo-backend-tls
+#       hosts:
+#         - todo.yourdomain.com
+
+# Add to charts/frontend/values.yaml or values-cloud.yaml:
+#
+# ingress:
+#   enabled: true
+#   className: "nginx"
+#   annotations:
+#     cert-manager.io/cluster-issuer: "letsencrypt-prod"
+#     nginx.ingress.kubernetes.io/ssl-redirect: "true"
+#   hosts:
+#     - host: todo.yourdomain.com
+#       paths:
+#         - path: /
+#           pathType: Prefix
+#           port: 3000
+#   tls:
+#     - secretName: todo-frontend-tls
+#       hosts:
+#         - todo.yourdomain.com

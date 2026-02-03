@@ -1,0 +1,48 @@
+# Oracle Cloud OKE-specific values for recurring-task-service
+# Deploy with: helm upgrade --install recurring-task-service ./charts/recurring-task-service -n todo-app -f charts/recurring-task-service/values-oke.yaml
+
+replicaCount: 1
+
+image:
+  # Replace <region> and <tenancy> with your Oracle Cloud values
+  repository: <region>.ocir.io/<tenancy>/recurring-task-service
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: ocir-secret
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+env:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"  # Or Redpanda Cloud bootstrap servers
+  KAFKA_TOPIC: "task-events"
+  CONSUMER_GROUP_ID: "recurring-task-service"
+  LOG_LEVEL: "INFO"
+
+# Database secret
+database:
+  secretName: "todo-backend-secret"
+  secretKey: "DATABASE_URL"
+
+# Dapr configuration
+dapr:
+  enabled: true
+  appId: "recurring-task-service"
+  appPort: ""  # No HTTP port - consumer only
+  enableApiLogging: "true"
+  logLevel: "info"
+  config: "daprsystem"
+  components:
+    pubsub: "kafka-pubsub"
+    secretstore: "kubernetes-secrets"
+
+# Oracle OKE ARM instances node selector
+nodeSelector:
+  kubernetes.io/arch: arm64  # Remove if using AMD64 instances

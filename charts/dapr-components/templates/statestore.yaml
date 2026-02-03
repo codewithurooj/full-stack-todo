@@ -1,0 +1,19 @@
+{{- if .Values.statestore.enabled }}
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: {{ .Values.statestore.name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  type: state.postgresql
+  version: v1
+  metadata:
+  - name: connectionString
+    secretKeyRef:
+      name: {{ .Values.statestore.secretRef }}
+      key: connectionString
+  - name: tableName
+    value: "dapr_state"
+  - name: actorStateStore
+    value: "true"
+{{- end }}

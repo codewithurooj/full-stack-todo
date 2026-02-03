@@ -1,0 +1,98 @@
+# Dapr Configuration
+# Feature: 012-dapr-integration
+# Purpose: Global Dapr runtime configuration
+
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: dapr-config
+  namespace: default
+  labels:
+    app.kubernetes.io/part-of: todo-app
+    feature: 012-dapr-integration
+spec:
+  # Tracing configuration
+  tracing:
+    samplingRate: "1"  # 100% sampling for development
+    zipkin:
+      endpointAddress: "http://zipkin:9411/api/v2/spans"
+    # Alternative: Jaeger
+    # otel:
+    #   endpointAddress: "http://jaeger-collector:4317"
+    #   isSecure: false
+    #   protocol: grpc
+
+  # Metrics configuration
+  metrics:
+    enabled: true
+    rules:
+      - name: "todo-metrics"
+        labels:
+          - name: "method"
+          - name: "topic"
+          - name: "status"
+
+  # Logging configuration
+  logging:
+    apiLogging:
+      enabled: true
+      obfuscateURLs: false
+
+  # Access control (mTLS)
+  accessControl:
+    defaultAction: allow  # Change to "deny" for production
+    trustDomain: "todo-app"
+    policies:
+      - appId: backend-service
+        defaultAction: allow
+        trustDomain: "todo-app"
+        namespace: "default"
+        operations:
+          - name: /api/*
+            httpVerb: ["*"]
+            action: allow
+      - appId: notification-service
+        defaultAction: allow
+        operations:
+          - name: /events/*
+            httpVerb: ["POST"]
+            action: allow
+      - appId: audit-service
+        defaultAction: allow
+        operations:
+          - name: /events/*
+            httpVerb: ["POST"]
+            action: allow
+      - appId: recurring-task-service
+        defaultAction: allow
+        operations:
+          - name: /events/*
+            httpVerb: ["POST"]
+            action: allow
+
+  # Feature flags
+  features:
+    - name: "Resiliency"
+      enabled: true
+    - name: "ServiceInvocationStreaming"
+      enabled: false
+
+  # HTTP pipeline (middleware)
+  httpPipeline:
+    handlers: []
+    # Add middleware like rate limiting, OAuth here
+
+---
+# Namespace scoped configuration for development
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: dapr-config-dev
+  namespace: default
+spec:
+  tracing:
+    samplingRate: "1"
+  metrics:
+    enabled: true
+  accessControl:
+    defaultAction: allow

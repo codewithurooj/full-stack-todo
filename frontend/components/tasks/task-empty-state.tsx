@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { PlusCircle, CheckCircle, Clipboard } from "lucide-react"
 
 export interface TaskEmptyStateProps {
-  filter?: "all" | "active" | "completed"
+  filter?: "all" | "pending" | "completed"
   onCreateTask?: () => void
 }
 
@@ -19,11 +19,11 @@ export function TaskEmptyState({
 }: TaskEmptyStateProps) {
   const getContent = () => {
     switch (filter) {
-      case "active":
+      case "pending":
         return {
           icon: <CheckCircle className="h-16 w-16 text-green-500" />,
           title: "All done!",
-          description: "You have no active tasks.",
+          description: "You have no pending tasks.",
           showButton: false,
         }
       case "completed":
