@@ -264,6 +264,37 @@ async def create_task(
     return db_task
 
 
+@router.get("/tags", response_model=TagsResponse)
+async def get_tags(
+    user_id: str,
+    current_user_id: str = Depends(get_current_user_id),
+    session: Session = Depends(get_session)
+):
+    """
+    Get all unique tags used by the user with usage counts.
+    """
+    if user_id != current_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Unauthorized access"
+        )
+
+    statement = select(Task).where(Task.user_id == user_id)
+    tasks = session.exec(statement).all()
+
+    tag_counts = {}
+    for task in tasks:
+        for tag in task.tags:
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+
+    sorted_tags = sorted(tag_counts.keys())
+
+    return TagsResponse(
+        tags=sorted_tags,
+        usage_count=tag_counts
+    )
+
+
 @router.get("/{task_id}", response_model=TaskRead)
 async def get_task(
     user_id: str,
@@ -527,47 +558,3 @@ async def toggle_complete(
     return db_task
 
 
-@router.get("/tags", response_model=TagsResponse)
-async def get_tags(
-    user_id: str,
-    current_user_id: str = Depends(get_current_user_id),
-    session: Session = Depends(get_session)
-):
-    """
-    Get all unique tags used by the user with usage counts.
-
-    Args:
-        user_id: User ID from path parameter
-        current_user_id: Authenticated user ID from JWT token
-        session: Database session
-
-    Returns:
-        TagsResponse with sorted tags and usage counts
-
-    Raises:
-        HTTPException: If unauthorized
-    """
-    # Verify user_id matches JWT
-    if user_id != current_user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Unauthorized access"
-        )
-
-    # Get all tasks for user
-    statement = select(Task).where(Task.user_id == user_id)
-    tasks = session.exec(statement).all()
-
-    # Collect all tags and count usage
-    tag_counts = {}
-    for task in tasks:
-        for tag in task.tags:
-            tag_counts[tag] = tag_counts.get(tag, 0) + 1
-
-    # Sort tags alphabetically
-    sorted_tags = sorted(tag_counts.keys())
-
-    return TagsResponse(
-        tags=sorted_tags,
-        usage_count=tag_counts
-    )

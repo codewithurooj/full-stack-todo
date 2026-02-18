@@ -117,6 +117,12 @@ async function apiFetch<T>(
   }
 }
 
+interface TaskListResponse {
+  tasks: Task[]
+  count: number
+  filters_applied: Record<string, unknown>
+}
+
 /**
  * Task API Methods
  */
@@ -126,7 +132,8 @@ export const taskApi = {
    */
   async list(userId: string, filters?: TaskFilters): Promise<Task[]> {
     const queryString = buildQueryString(filters)
-    return apiFetch<Task[]>(`/api/${userId}/tasks${queryString}`)
+    const response = await apiFetch<TaskListResponse>(`/api/${userId}/tasks${queryString}`)
+    return response.tasks
   },
 
   /**
