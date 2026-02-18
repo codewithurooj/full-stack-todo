@@ -7,6 +7,7 @@
 "use client"
 
 import * as React from "react"
+import { Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useBackendSession } from "@/lib/use-backend-session"
 import { useToast } from "@/components/ui/toast"
@@ -29,7 +30,7 @@ import { taskApi } from "@/lib/api/client"
 import { PlusCircle } from "lucide-react"
 import useSWR from "swr"
 
-export default function TasksPage() {
+function TasksPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { data: session, isPending } = useBackendSession()
@@ -384,5 +385,13 @@ export default function TasksPage() {
         onClose={() => setShowShortcuts(false)}
       />
     </div>
+  )
+}
+
+export default function TasksPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50/30 flex items-center justify-center"><div className="animate-pulse text-gray-400">Loading...</div></div>}>
+      <TasksPageContent />
+    </Suspense>
   )
 }
