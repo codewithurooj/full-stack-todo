@@ -6,7 +6,7 @@ from typing import Optional
 
 class NotificationSubscriptionBase(SQLModel):
     """Base notification subscription fields"""
-    user_id: int = Field(foreign_key="users.id", nullable=False, description="User who granted notification permission")
+    user_id: str = Field(foreign_key="users.id", nullable=False, description="User who granted notification permission")
     endpoint: str = Field(nullable=False, description="Push service endpoint (e.g., FCM URL)")
     p256dh: str = Field(nullable=False, description="Client public key for message encryption (VAPID)")
     auth: str = Field(nullable=False, description="Authentication secret for message verification")
