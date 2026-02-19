@@ -10,7 +10,7 @@ class AuditLogBase(SQLModel):
     """Base audit log fields"""
     event_id: UUID = Field(unique=True, nullable=False, description="UUID from Kafka event (idempotency key)")
     timestamp: datetime = Field(nullable=False, description="Original event timestamp from Kafka")
-    user_id: int = Field(foreign_key="users.id", nullable=False, description="User who performed operation")
+    user_id: str = Field(foreign_key="users.id", nullable=False, description="User who performed operation")
     task_id: Optional[int] = Field(default=None, foreign_key="tasks.id", description="Task affected (NULL for non-task events)")
     operation_type: str = Field(
         max_length=50,
